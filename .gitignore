@@ -1,0 +1,8 @@
+# personal study notes — not part of the deliverable
+NOTES.md
+
+__pycache__/
+*.pyc
+
+# local tool settings
+.claude/
