@@ -51,9 +51,9 @@ def accumulate_bin_fees(df):
 
 
 if __name__ == "__main__":
-    # Task doc example: $100M volume, 2% share, 0.1% fee -> exactly $2,000.
+    # Reference example: $100M volume, 2% share, 0.1% fee -> exactly $2,000.
     assert candle_fee(100_000_000, 0.02, 0.001) == 2_000.0
-    print("task-doc example passes: $100M volume -> $2,000 fee")
+    print("reference example passes: $100M volume -> $2,000 fee")
 
     # --- distribute_fee ----------------------------------------------------
     split = distribute_fee(6.0, [-1288, -1287, -1286])
@@ -83,7 +83,7 @@ if __name__ == "__main__":
     print(f"avg fee per candle:  ${fees.mean():,.4f}")
     print(f"fee per day:         ${fees.sum() / days:,.2f}")
 
-    # --- Toy example (task-doc pattern): 3 candles around bin X ------------
+    # --- Toy example: 3 candles around bin X --------------------------------
     # Fees $3 / $2 / $1 via volumes chosen so candle_fee gives those numbers.
     # Hand calculation:
     #   candle 1: $3 over {X, X+1, X+2} -> $1 each

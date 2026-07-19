@@ -4,7 +4,7 @@ A 1-minute candle traded at every price between its low and its high at
 some moment during that minute. So the bins it "touched" are every bin
 from the one containing the low up to the one containing the high.
 
-Price convention: RAW on-chain prices, to match the boss's pool tracker.
+Price convention: RAW on-chain prices, so bin ids match on-chain tooling.
 On-chain there are no decimal points: SOL amounts are lamports (10^9 per
 SOL) and USDC amounts are base units (10^6 per USDC), so the price the
 contract sees is

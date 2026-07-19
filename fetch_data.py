@@ -1,4 +1,4 @@
-"""Stage 1: fetch historical 1-minute SOL candles from Jupiter's chart API.
+"""Fetch historical 1-minute SOL candles from Jupiter's chart API.
 
 Endpoint notes (probed 2026-07-19):
 - `to` must be in unix MILLISECONDS; candle `time` in the response is in SECONDS.

@@ -23,7 +23,7 @@ OUTPUT_DIR = "outputs"
 def describe(name, position, user_fees, days):
     total = user_fees.sum()
     per_day = total / days
-    apy = per_day * 365 / USER_DEPOSIT  # simple APY per the task doc
+    apy = per_day * 365 / USER_DEPOSIT  # simple APY (no compounding)
     pct_earning = (user_fees > 0).mean() * 100
     lo_ui = raw_to_ui(get_price_from_bin_id(position.range_start, BIN_STEP))
     hi_ui = raw_to_ui(get_price_from_bin_id(position.range_end + 1, BIN_STEP))
@@ -66,13 +66,13 @@ if __name__ == "__main__":
     cum_a = fees_a.cumsum()
     cum_b = fees_b.cumsum()
 
-    # --- Verify 1: A monotone, final value = Stage 5 sanity total ----------
+    # --- Verify 1: A monotone, final value = analytic expected total -------
     assert (fees_a >= 0).all()  # per-candle fees never negative => cum non-decreasing
     assert (cum_a.diff().dropna() >= 0).all()
     expected_a = pos_a.deposit_per_bin / BIN_TVL * total_pool_fees
     assert abs(cum_a.iloc[-1] - expected_a) < 1e-6
     print(f"\nverify 1 OK: A monotone, final ${cum_a.iloc[-1]:.4f} "
-          f"= Stage 5 sanity ${expected_a:.4f}")
+          f"= analytic total ${expected_a:.4f}")
 
     # --- Verify 2: B flat exactly when price is outside the range ----------
     in_range = df["touched_bins"].map(

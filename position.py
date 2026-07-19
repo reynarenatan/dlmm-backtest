@@ -25,8 +25,8 @@ def make_position(total_deposit: float, range_start: int, range_end: int,
                   bin_tvl=BIN_TVL) -> Position:
     """Build a Position with the deposit spread equally over the range.
 
-    bin_tvl is normally the single BIN_TVL constant. The supervisor's
-    worked example needs per-bin TVLs, so a dict {bin_id: tvl} is also
+    bin_tvl is normally the single BIN_TVL constant. The reference worked
+    example needs per-bin TVLs, so a dict {bin_id: tvl} is also
     accepted — the difference is absorbed HERE, into the precomputed
     shares; Position and everything downstream never know about it.
     """
