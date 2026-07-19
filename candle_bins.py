@@ -1,4 +1,4 @@
-"""Stage 2: map each candle to the DLMM bins its price range touched.
+"""Map each candle to the DLMM bins its price range touched.
 
 A 1-minute candle traded at every price between its low and its high at
 some moment during that minute. So the bins it "touched" are every bin

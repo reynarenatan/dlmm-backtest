@@ -1,6 +1,6 @@
-"""Stage 5: a user's liquidity position and the fees it personally earns.
+"""A user's liquidity position and the fees it personally earns.
 
-Model (per the task doc): USER_DEPOSIT spread equally across a bin range;
+Model: USER_DEPOSIT spread equally across a bin range;
 every bin has fixed TVL = BIN_TVL; the user owns deposit_per_bin / BIN_TVL
 of each of their bins and earns that fraction of each bin's fees.
 """
@@ -64,7 +64,7 @@ def run_position(df, position: Position) -> pd.Series:
 
 
 if __name__ == "__main__":
-    # --- Supervisor's worked example ---------------------------------------
+    # --- Example ---------------------------------------
     # $100 in each of three bins (total $300), TVLs 10k/11k/12k, candle
     # fees $100/$110/$105 -> user earns $1 + $1 + $0.875 = $2.875.
     X = -1287
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     )
     candle = {X: 100.0, X + 1: 110.0, X + 2: 105.0}
 
-    print("--- task-doc worked example ---")
+    print("--- Example ---")
     for bin_id in range(X, X + 3):
         share = pos.shares[bin_id]
         print(f"bin {bin_id}: share {share:.6%} of ${candle[bin_id]:.2f} fee"

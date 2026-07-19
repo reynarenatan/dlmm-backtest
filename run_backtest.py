@@ -1,4 +1,4 @@
-"""Stage 6 (final, v1): run the two task-doc scenarios end to end.
+"""Two example scenarios.
 
 A) Wide: the user's range covers every bin the price ever touched.
 B) Concentrated: a fixed CONCENTRATED_BINS-wide window centered on the
