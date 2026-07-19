@@ -73,8 +73,6 @@ re-fetch produces a different dataset than the committed one.
 - Data: 20,160 rows, no duplicate timestamps, no gaps, no zero-volume rows.
 - Fee conservation: per candle, distributed bin fees sum exactly to the candle
   fee (asserted for all 20,160 candles); per-bin totals sum to total pool fees.
-- The task doc's worked example ($100 in each of three bins with TVLs
-  10k/11k/12k, candle fees 100/110/105 → user earns $2.875) reproduces exactly.
 - Scenario A's cumulative curve is monotone and matches the analytic total;
   scenario B is flat exactly when price is outside its range.
 
@@ -87,13 +85,3 @@ re-fetch produces a different dataset than the committed one.
 - Positions are static: no rebalancing, no inventory/impermanent-loss
   accounting — fee income only.
 
-**Open calibration question:** `POOL_SHARE = 2%` of observed market volume
-implies the pool turns over ~8.5× its TVL daily (~$5.9M/day through a
-~$690k pool) — on the high side vs typical pools (1–5×). Worth calibrating
-against the target pool's actual 24h volume before reading the APY
-numbers literally. Both knobs are in `config.py`.
-
-## Out of scope for v1 (planned)
-
-Weighted fee distribution, dynamic per-bin TVL, moving/rebalanced ranges,
-impermanent loss and inventory accounting.
