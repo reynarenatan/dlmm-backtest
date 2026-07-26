@@ -45,7 +45,7 @@ if __name__ == "__main__":
     df = add_bins_to_dataframe(df, BIN_STEP)
     days = len(df) / 1440
 
-    total_bin_fees, _ = accumulate_bin_fees(df)
+    total_bin_fees, per_candle_bin_fees = accumulate_bin_fees(df)
     total_pool_fees = sum(total_bin_fees.values())
 
     # --- Scenario A: wide, computed from the data --------------------------
@@ -144,3 +144,148 @@ if __name__ == "__main__":
           f"{pos_a.deposit_per_bin / BIN_TVL:.3%}) but earned nothing on the "
           f"{(~in_range).mean():.0%} of candles where price was outside its "
           "window; A earned on every candle.")
+
+    # --- Full accounting: fees vs impermanent loss -------------------------
+    # IL here is position value minus the value of just HOLDING the initial
+    # tokens: an opportunity cost versus holding, not a direct loss.
+    from pnl import pnl_frame
+
+    scenarios = [("A wide", pos_a, fees_a), ("B concentrated", pos_b, fees_b)]
+    pnls, rows = {}, []
+    print("\n=== fees vs impermanent loss (both in USD, vs HODL) ===")
+    print(f"{'scenario':16s} {'fees':>9s} {'IL':>9s} {'net PnL':>9s}"
+          f" {'net APY':>8s}")
+    for name, pos, fees in scenarios:
+        p = pnl_frame(df, pos, fees)
+        pnls[name] = p
+        fees_total = fees.sum()
+        il_end = p["il"].iloc[-1]
+        net = p["net_pnl"].iloc[-1]
+        apy = net / days * 365 / USER_DEPOSIT
+        rows.append((name, fees_total, il_end, net, apy))
+        print(f"{name:16s} {fees_total:9.2f} {il_end:9.2f} {net:9.2f}"
+              f" {apy:8.1%}")
+
+    print("\nDid fees cover impermanent loss over this period?")
+    for name, fees_total, il_end, net, apy in rows:
+        verdict = "YES" if net > 0 else "NO"
+        print(f"  {name}: {verdict} -- ${fees_total:.2f} of fees vs "
+              f"${-il_end:.2f} given up versus just holding "
+              f"-> net ${net:+.2f} ({apy:+.1%} APY)")
+
+    # --- Full accounting chart: fees, IL, net PnL over time ----------------
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    for ax, (name, pos, fees) in zip(axes, scenarios):
+        p = pnls[name]
+        ax.axhline(0, color="#b3b3bd", lw=0.8)
+        ax.plot(df["timestamp"], p["cum_fees"], color="#2563eb", lw=1.6,
+                label=f"cumulative fees (${p['cum_fees'].iloc[-1]:+.2f})")
+        ax.plot(df["timestamp"], p["il"], color="#ea580c", lw=1.6,
+                label=f"IL vs HODL (${p['il'].iloc[-1]:+.2f})")
+        ax.plot(df["timestamp"], p["net_pnl"], color="#111827", lw=2.0,
+                label=f"net PnL = fees + IL (${p['net_pnl'].iloc[-1]:+.2f})")
+        ax.set_title(f"{name}: bins {pos.range_start}..{pos.range_end}",
+                     fontsize=10, color="#3f3f46", loc="left")
+        ax.set_ylabel("USD", color="#52525b")
+        ax.legend(loc="lower left", fontsize=9, framealpha=0.9,
+                  edgecolor="none")
+        ax.tick_params(colors="#52525b", labelsize=9)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    fig.suptitle(f"Fees, impermanent loss and net PnL "
+                 f"(${USER_DEPOSIT} over {days:.0f} days)",
+                 fontsize=11, color="#3f3f46")
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    fig.savefig(f"{OUTPUT_DIR}/net_pnl.png", dpi=150)
+    print(f"\nchart saved to {OUTPUT_DIR}/net_pnl.png")
+
+    # --- Strategy comparison: passive A, passive B, rebalancing C ----------
+    # C starts identical to B; when a candle closes outside its range it
+    # closes the position and reopens it centered on the current bin,
+    # paying REBALANCE_COST on the SOL traded in the conversion.
+    from config import REBALANCE_COST
+    from pnl import hodl_series
+    from strategies import run_strategy_c
+
+    c_frame, c_events = run_strategy_c(df, per_candle_bin_fees)
+
+    print(f"\n=== strategy C: rebalancing concentrated "
+          f"({CONCENTRATED_BINS} bins, cost {REBALANCE_COST:.2%} of value "
+          f"traded) ===")
+    print(f"rebalances: {len(c_events)}")
+    for e in c_events:
+        ts = df["timestamp"].iloc[e["index"]]
+        lo, hi = e["new_range"]
+        print(f"  {ts:%Y-%m-%d %H:%M} close {e['close']:.4f}: "
+              f"{e['direction']} {abs(e['sol_traded']):.4f} SOL "
+              f"(${abs(e['sol_traded']) * e['close']:.2f} changed hands, "
+              f"cost ${e['cost']:.4f}), new range {lo}..{hi}")
+
+    # C's HODL baseline is the same initial tokens as B (identical start).
+    # il is the price effect alone (costs added back and shown separately);
+    # net pnl = fees + il - costs = fees + (value - hodl).
+    hodl_c = hodl_series(pos_b, df["close"])
+    cum_fees_c = c_frame["fee"].cumsum()
+    cum_cost_c = c_frame["cost"].cumsum()
+    net_c = cum_fees_c + c_frame["value"] - hodl_c
+    il_c = c_frame["value"] - hodl_c + cum_cost_c
+
+    table = [
+        ("A wide", pnls["A wide"]["cum_fees"].iloc[-1],
+         pnls["A wide"]["il"].iloc[-1], 0.0,
+         pnls["A wide"]["net_pnl"].iloc[-1], 0),
+        ("B concentrated", pnls["B concentrated"]["cum_fees"].iloc[-1],
+         pnls["B concentrated"]["il"].iloc[-1], 0.0,
+         pnls["B concentrated"]["net_pnl"].iloc[-1], 0),
+        ("C rebalancing", cum_fees_c.iloc[-1], il_c.iloc[-1],
+         cum_cost_c.iloc[-1], net_c.iloc[-1], len(c_events)),
+    ]
+    print(f"\n=== strategy comparison over {days:.0f} days "
+          f"(all USD, IL vs HODL) ===")
+    print(f"{'strategy':16s} {'fees':>8s} {'IL':>8s} {'costs':>7s}"
+          f" {'net PnL':>8s} {'net APY':>8s} {'rebal':>6s}")
+    for name, f_, il_, cost_, net_, n_ in table:
+        apy = net_ / days * 365 / USER_DEPOSIT
+        print(f"{name:16s} {f_:8.2f} {il_:8.2f} {cost_:7.2f}"
+              f" {net_:8.2f} {apy:8.1%} {n_:6d}")
+
+    # --- Sensitivity: does the verdict on C survive higher trading costs? --
+    print("\nREBALANCE_COST sensitivity (strategy C):")
+    for rate in (0.0, 0.001, 0.005):
+        s_frame, s_events = run_strategy_c(df, per_candle_bin_fees,
+                                           cost_rate=rate)
+        s_net = (s_frame["fee"].cumsum()
+                 + s_frame["value"] - hodl_c).iloc[-1]
+        s_cost = s_frame["cost"].sum()
+        print(f"  cost {rate:.2%}: net PnL ${s_net:+8.2f} "
+              f"(total costs ${s_cost:.2f}, {len(s_events)} rebalances)")
+
+    # --- Strategy chart: net PnL over time, all three ----------------------
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.axhline(0, color="#b3b3bd", lw=0.8)
+    ax.plot(df["timestamp"], pnls["A wide"]["net_pnl"], color="#2563eb",
+            lw=1.8, label=f"A wide (${pnls['A wide']['net_pnl'].iloc[-1]:+.2f})")
+    ax.plot(df["timestamp"], pnls["B concentrated"]["net_pnl"],
+            color="#ea580c", lw=1.8,
+            label=f"B concentrated "
+                  f"(${pnls['B concentrated']['net_pnl'].iloc[-1]:+.2f})")
+    ax.plot(df["timestamp"], net_c, color="#7c3aed", lw=1.8,
+            label=f"C rebalancing (${net_c.iloc[-1]:+.2f}, "
+                  f"{len(c_events)} rebalance{'s' if len(c_events) != 1 else ''})")
+    if c_events:
+        idx = [e["index"] for e in c_events]
+        ax.scatter(df["timestamp"].iloc[idx], net_c.iloc[idx], s=28,
+                   color="#7c3aed", edgecolors="white", linewidths=1.2,
+                   zorder=3, label="rebalance")
+    ax.set_title(f"Net PnL by strategy (${USER_DEPOSIT} over {days:.0f} days)",
+                 fontsize=11, color="#3f3f46")
+    ax.set_ylabel("net PnL (USD)", color="#52525b")
+    ax.tick_params(colors="#52525b", labelsize=9)
+    ax.legend(loc="upper left", fontsize=9, framealpha=0.9, edgecolor="none")
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    fig.savefig(f"{OUTPUT_DIR}/strategies.png", dpi=150)
+    print(f"\nchart saved to {OUTPUT_DIR}/strategies.png")

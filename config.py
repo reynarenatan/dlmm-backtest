@@ -6,3 +6,5 @@ FEE_RATE = 0.001  # 0.1% trading fee
 BIN_TVL = 10_000  # fixed TVL per bin in USD 
 USER_DEPOSIT = 1_000  # total user deposit in USD 
 CONCENTRATED_BINS = 51  # width (in bins) of the concentrated position
+FEE_DISTRIBUTION = "equal"  # "equal" or "weighted": how a candle's fee splits across its bins
+REBALANCE_COST = 0.001  # 0.1% of the value traded at a rebalance (swap fee + slippage + gas stand-in)
