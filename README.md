@@ -16,8 +16,8 @@ LPing earned *over just holding*.
 | strategy | fees | IL | costs | net PnL | net APY | rebalances |
 |---|---|---|---|---|---|---|
 | A: passive wide (68 bins, $73.14–$83.78) | $121.41 | −$14.16 | — | **+$107.25** | 279.6% | 0 |
-| B: passive concentrated (51 bins, $77.19–$85.47) | $96.70 | −$18.32 | — | **+$78.38** | 204.4% | 0 |
-| C: rebalancing concentrated (51 bins) | $157.46 | −$13.18 | $0.49 | **+$143.79** | 374.9% | 1 |
+| B: passive concentrated (51 bins, $77.19–$85.47) | $96.73 | −$18.32 | — | **+$78.41** | 204.4% | 0 |
+| C: rebalancing concentrated (51 bins) | $157.47 | −$13.18 | $0.49 | **+$143.80** | 374.9% | 1 |
 
 ![Net PnL by strategy](outputs/strategies.png)
 
@@ -46,7 +46,7 @@ conversion. On this dataset that happened exactly once (July 8: sold
 6.36 SOL at $77.19, cost $0.49) and the new range held for the remaining
 11 days — so C kept B's concentrated fee share while staying in range
 almost always, and beat both passive strategies. The verdict is robust to
-the cost assumption here (net +$144.33 / +$143.79 / +$141.61 at 0% /
+the cost assumption here (net +$144.34 / +$143.80 / +$141.62 at 0% /
 0.1% / 0.5%) but only because a single rebalance occurred: a price that
 oscillates around a range edge triggers repeated rebalances, each of
 which pays the cost *and* realizes the loss accumulated on the way out
@@ -120,8 +120,10 @@ re-fetch produces a different dataset than the committed one.
 ## Model assumptions
 
 - Fees per candle: `volume_usd × POOL_SHARE × FEE_RATE`, split among the
-  bins the candle touched — equally by default, or weighted by each bin's
-  share of the candle's price range (`FEE_DISTRIBUTION`).
+  bins the candle touched — weighted by each bin's share of the candle's
+  price range by default, or equally (`FEE_DISTRIBUTION`). On this
+  dataset the two modes differ by cents: only candles straddling a
+  range edge are affected.
 - Every bin has fixed TVL (`BIN_TVL`); the user's share of a bin is
   `deposit_per_bin / BIN_TVL`.
 - Inventory is driven by candle **closes** only: bins at or below the
