@@ -7,7 +7,10 @@ DATA_FILE = "data/sol_1m_1y.parquet"
 BIN_STEP = 4  # basis points; a common step for SOL pools (each bin 0.04% apart)
 POOL_SHARE = 0.08  # this pool captures 8% of total market volume
 FEE_RATE = 0.0004  # 0.04% trading fee
-BIN_TVL = 10_000  # fixed TVL per bin in USD 
+# Fixed TVL per bin in USD, from the tracked pool rather than a guess: it held
+# about $723k inside a +/-1% band, which at bin step 4 is 50 bins, and the
+# liquidity thins going outward across a 69-bin position.
+BIN_TVL = 13_500
 USER_DEPOSIT = 1_000  # total user deposit in USD 
 POSITION_BINS = 69  # width (in bins) of every position; Meteora's default range
 MAX_BINS = 69  # widest position the engine will build; wider is rejected outright

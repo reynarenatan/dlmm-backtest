@@ -87,10 +87,14 @@ def run_rebalancing(df, per_candle_bin_fees=None, width=POSITION_BINS,
     the inventory absorbs the close, then a close outside the range
     triggers a rebalance (which affects fees from the NEXT candle on).
 
-    Returns (frame, events): frame has value / fee / cost and the
-    sol_held / usdc_held behind that value, per candle (all recorded
+    Returns (frame, events): frame has value / fee / cost, the
+    sol_held / usdc_held behind that value, and the range_start /
+    range_end the position holds going forward, per candle (all recorded
     after any rebalance, i.e. net of its cost); events is one dict per
     rebalance with the row index added.
+
+    range_start/range_end are recorded for reporting only -- nothing in
+    the walk reads them back.
     """
     if per_candle_bin_fees is None:
         _, per_candle_bin_fees = accumulate_bin_fees(df)
@@ -111,10 +115,12 @@ def run_rebalancing(df, per_candle_bin_fees=None, width=POSITION_BINS,
             events.append(event)
             cost = event["cost"]
         sol, usdc = inventory_totals(inv)
-        rows.append((usdc + sol * close, fee, cost, sol, usdc))
+        rows.append((usdc + sol * close, fee, cost, sol, usdc,
+                     pos.range_start, pos.range_end))
 
     frame = pd.DataFrame(
-        rows, columns=["value", "fee", "cost", "sol_held", "usdc_held"],
+        rows, columns=["value", "fee", "cost", "sol_held", "usdc_held",
+                       "range_start", "range_end"],
         index=df.index)
     return frame, events
 
@@ -226,9 +232,88 @@ def check_trade_directions() -> None:
     print("  directions match on both paths -- PASS")
 
 
+def check_long_oscillation() -> None:
+    """A closed price loop, repeated: recentring alone must bleed value.
+
+    The other checks here are 8 candles with one or two rebalances, which
+    is far too short to see a slow per-rebalance loss -- that is how a
+    position decaying $1,000 -> $0.02 over 2,236 rebalances went unnoticed.
+
+    The path is a sawtooth that returns to its exact starting price, run
+    with REBALANCE_COST = 0, so fees and explicit costs cannot explain
+    anything: whatever the position loses is the buy-high/sell-low cost of
+    moving the range. The passive position over the same path must come
+    back to exactly where it started.
+    """
+    print("=" * 72)
+    print("CHECK 4 -- repeated closed loop: recentring bleeds value")
+    print("=" * 72)
+    a = active_bin(76.0)
+    width = POSITION_BINS
+    half = width // 2
+    amplitude = half + 6  # must exceed half, or the price never exits
+    cycles = 30
+
+    offsets = []
+    for _ in range(cycles):
+        offsets += list(range(0, amplitude)) + list(range(amplitude, 0, -1))
+    offsets.append(0)  # close the loop on the starting bin
+    path = [a + o for o in offsets]
+    df = make_synthetic_df(path)
+    assert df["close"].iloc[-1] == df["close"].iloc[0]
+
+    from inventory import run_inventory
+    pos = make_position(USER_DEPOSIT, a - half, a + half)
+    passive = run_inventory(df, pos)
+    frame, events = run_rebalancing(df, width=width, cost_rate=0.0)
+
+    v0 = frame["value"].iloc[0]
+    v1 = frame["value"].iloc[-1]
+    print(f"  {len(df)} candles, {cycles} identical price cycles of "
+          f"+/-{amplitude} bins, width {width}, cost 0")
+    print(f"  passive:     {passive['value'].iloc[0]:.6f} -> "
+          f"{passive['value'].iloc[-1]:.6f}")
+    print(f"  rebalancing: {v0:.6f} -> {v1:.6f}  "
+          f"({(v1 / v0 - 1) * 100:+.4f}% over {len(events)} rebalances)")
+
+    assert len(events) >= 50, f"expected 50+ rebalances, got {len(events)}"
+    assert frame["cost"].sum() == 0.0
+    assert passive["value"].iloc[-1] == passive["value"].iloc[0], (
+        "passive must return to exactly its starting value on a closed loop")
+    assert v1 < v0, (
+        "rebalancing on a closed loop at zero cost must LOSE value; if this "
+        "ever passes, the recentring conversion has stopped being lossy")
+
+    # Each cycle ends on the same price, so once the position has settled
+    # into the sawtooth every cycle costs the same fraction. That makes the
+    # decay a plain geometric series: predict the end from one cycle's ratio.
+    per_cycle = len(offsets) // cycles
+    ends = [frame["value"].iloc[min((k + 1) * per_cycle, len(df) - 1)]
+            for k in range(cycles)]
+    ratios = [ends[k + 1] / ends[k] for k in range(len(ends) - 1)]
+    steady = ratios[-1]
+    print(f"  per-cycle value ratio: first {ratios[0]:.6f}, "
+          f"last {steady:.6f}  ({(steady - 1) * 100:+.4f}% per cycle)")
+
+    spread = max(ratios[1:]) - min(ratios[1:])
+    assert spread < 1e-6, (
+        f"after the first cycle every cycle should cost the same fraction; "
+        f"ratios spread by {spread:.2e}")
+    predicted = ends[0] * steady ** (cycles - 1)
+    print(f"  predicted end from one cycle: {predicted:.6f} vs actual "
+          f"{ends[-1]:.6f}")
+    assert abs(predicted - ends[-1]) < 1e-6 * ends[0]
+
+    per_rebalance = (v1 / v0) ** (1 / len(events)) - 1
+    print(f"  isolated cost of recentring: {per_rebalance * 100:+.4f}% "
+          f"per rebalance -- PASS")
+
+
 if __name__ == "__main__":
     check_equals_passive_when_inside()
     print()
     check_zero_cost_continuity()
     print()
     check_trade_directions()
+    print()
+    check_long_oscillation()
