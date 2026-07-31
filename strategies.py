@@ -83,9 +83,10 @@ def run_strategy_c(df, per_candle_bin_fees=None, width=CONCENTRATED_BINS,
     the inventory absorbs the close, then a close outside the range
     triggers a rebalance (which affects fees from the NEXT candle on).
 
-    Returns (frame, events): frame has value / fee / cost per candle
-    (value is marked after any rebalance, i.e. net of its cost);
-    events is one dict per rebalance with the row index added.
+    Returns (frame, events): frame has value / fee / cost and the
+    sol_held / usdc_held behind that value, per candle (all recorded
+    after any rebalance, i.e. net of its cost); events is one dict per
+    rebalance with the row index added.
     """
     if per_candle_bin_fees is None:
         _, per_candle_bin_fees = accumulate_bin_fees(df)
@@ -105,10 +106,12 @@ def run_strategy_c(df, per_candle_bin_fees=None, width=CONCENTRATED_BINS,
             event["index"] = i
             events.append(event)
             cost = event["cost"]
-        rows.append((position_value(inv, close), fee, cost))
+        sol, usdc = inventory_totals(inv)
+        rows.append((usdc + sol * close, fee, cost, sol, usdc))
 
-    frame = pd.DataFrame(rows, columns=["value", "fee", "cost"],
-                         index=df.index)
+    frame = pd.DataFrame(
+        rows, columns=["value", "fee", "cost", "sol_held", "usdc_held"],
+        index=df.index)
     return frame, events
 
 
@@ -118,13 +121,19 @@ def run_strategy_c(df, per_candle_bin_fees=None, width=CONCENTRATED_BINS,
 
 def make_synthetic_df(bin_path: list[int],
                       volume_usd: float = 50_000) -> pd.DataFrame:
-    """One candle per bin id, close in that bin's middle, flat volume."""
+    """One candle per bin id, close in that bin's middle, flat volume.
+
+    low/high span exactly the candle's one touched bin, so the weighted
+    fee split hands that bin the whole fee and matches the equal split.
+    """
     from inventory import mid_price_ui
 
     closes = [mid_price_ui(b) for b in bin_path]
     return pd.DataFrame({
         "open": [closes[0]] + closes[:-1],
         "close": closes,
+        "low": [bin_price_ui(b) for b in bin_path],
+        "high": [bin_price_ui(b + 1) for b in bin_path],
         "volume_usd": volume_usd,
         "touched_bins": [[b] for b in bin_path],
     })

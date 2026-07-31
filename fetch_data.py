@@ -1,13 +1,16 @@
 """Fetch historical 1-minute SOL candles from Jupiter's chart API.
 
-Endpoint notes (probed 2026-07-19):
+Endpoint notes (probed 2026-07-19, re-probed 2026-07-28):
 - `to` must be in unix MILLISECONDS; candle `time` in the response is in SECONDS.
 - The API returns the `candles` most recent candles ENDING at `to`, oldest first.
+- A single page is capped at 7000 candles; asking for more silently returns 7000.
+- 1-minute history reaches at least 2 years back.
 - `volume` is already in USD (quote terms). Verified: avg ~$102k/minute
   extrapolates to ~$148M/day, ~12% of SOL's $1.19B global 24h volume (CMC).
   If it were SOL units it would imply ~$11B/day on-chain, 9x the global total.
 """
 
+import argparse
 import csv
 import os
 import time
@@ -17,11 +20,11 @@ import requests
 
 TOKEN_MINT = "So11111111111111111111111111111111111111112"  # SOL
 INTERVAL = "1_MINUTE"
-DAYS_BACK = 14
-OUTPUT_FILE = "data/sol_1m.csv"
+DEFAULT_DAYS_BACK = 14
+DEFAULT_OUTPUT_FILE = "data/sol_1m_14d.csv"
 
 API_URL = "https://datapi.jup.ag/v2/charts/" + TOKEN_MINT
-CANDLES_PER_REQUEST = 1000  # max the API gives per call
+CANDLES_PER_REQUEST = 5000  # the API caps a page at 7000; 5000 leaves headroom
 SLEEP_SECONDS = 0.2  # politeness delay between requests
 
 # The API returns 403 for the default "python-requests" User-Agent
@@ -95,9 +98,9 @@ def iso_utc(unix_s):
     return datetime.fromtimestamp(unix_s, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def write_csv(candles):
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    with open(OUTPUT_FILE, "w", newline="") as f:
+def write_csv(candles, output_file):
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["timestamp", "open", "high", "low", "close", "volume_usd"])
         for c in candles:
@@ -131,11 +134,18 @@ def print_summary(candles, duplicates):
 
 
 if __name__ == "__main__":
-    cutoff_s = int(time.time()) - DAYS_BACK * 24 * 60 * 60
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--days", type=int, default=DEFAULT_DAYS_BACK,
+                        help="how many days of history to fetch")
+    parser.add_argument("--out", default=DEFAULT_OUTPUT_FILE,
+                        help="CSV path to write")
+    args = parser.parse_args()
+
+    cutoff_s = int(time.time()) - args.days * 24 * 60 * 60
     raw = fetch_history(cutoff_s)
     print(f"\nfetched {len(raw)} candles total (before cleaning)")
 
     candles, duplicates = clean_candles(raw, cutoff_s)
-    write_csv(candles)
-    print(f"wrote {len(candles)} rows to {OUTPUT_FILE}")
+    write_csv(candles, args.out)
+    print(f"wrote {len(candles)} rows to {args.out}")
     print_summary(candles, duplicates)

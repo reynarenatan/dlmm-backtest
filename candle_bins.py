@@ -93,12 +93,13 @@ if __name__ == "__main__":
     print("\nall pure-function tests passed")
 
     # ======================================================================
-    # Demo on the real CSV (pandas/matplotlib only needed when run directly)
+    # Demo on the real data (matplotlib only needed when run directly)
     # ======================================================================
-    import pandas as pd
     import matplotlib.pyplot as plt
 
-    df = pd.read_csv("data/sol_1m.csv", parse_dates=["timestamp"])
+    from data_io import load_candles
+
+    df = load_candles()
     df = add_bins_to_dataframe(df, BIN_STEP)
 
     # --- Hand-check one real candle ---------------------------------------

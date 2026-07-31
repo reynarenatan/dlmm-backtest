@@ -138,8 +138,13 @@ def print_flips(flips: list) -> None:
 
 
 def mid_price_ui(bin_id: int) -> float:
-    """A UI price safely inside bin_id (lower edge x 1.001 = half a step)."""
-    return bin_price_ui(bin_id) * 1.001
+    """A UI price safely inside bin_id (lower edge + half a bin step)."""
+    return bin_price_ui(bin_id) * (1 + BIN_STEP / 20_000)
+
+
+def within_bin(bin_id: int, fraction: float) -> float:
+    """A UI price `fraction` of the way up bin_id (0 = lower edge)."""
+    return bin_price_ui(bin_id) * (1 + fraction * BIN_STEP / 10_000)
 
 
 def make_test_position() -> tuple[int, Position]:
@@ -155,11 +160,11 @@ def check_no_crossing() -> None:
     a, pos = make_test_position()
     print(f"  position: bins {a - 2}..{a + 2}, $100 per bin, edges "
           f"{bin_price_ui(a - 2):.4f}..{bin_price_ui(a + 3):.4f}")
-    wiggle = (1.0002, 1.0008, 1.0016, 1.0008, 1.0002)  # all < 1.002 = 1 bin
+    wiggle = (0.1, 0.4, 0.8, 0.4, 0.1)  # fractions of a bin: never crosses
 
     # (a) closes wiggle inside a bin ABOVE the whole range: every bin is
     # on the USDC side, so value is constant to the cent AND the satoshi.
-    closes = [bin_price_ui(a + 4) * f for f in wiggle]
+    closes = [within_bin(a + 4, f) for f in wiggle]
     inv = make_inventory(pos, closes[0])
     v0 = position_value(inv, closes[0])
     print(f"\n  (a) closes inside bin {a + 4} (above the range) -> all USDC")
@@ -176,7 +181,7 @@ def check_no_crossing() -> None:
     # SOL. Composition is frozen (no flips), but value still moves with
     # the close -- exactly by sol_held x (close - close0), returning to
     # exactly 0 when the close returns to its start.
-    closes = [bin_price_ui(a) * f for f in wiggle]
+    closes = [within_bin(a, f) for f in wiggle]
     inv = make_inventory(pos, closes[0])
     sol0, usdc0 = inventory_totals(inv)
     v0 = position_value(inv, closes[0])
@@ -281,15 +286,16 @@ def check_one_way() -> None:
 
 
 def run_real() -> None:
-    """Inventory of the two backtest scenarios over the real 14-day CSV."""
-    import os
+    """Inventory of the two passive scenarios over the real 14-day CSV.
 
-    import matplotlib.pyplot as plt
-
+    Printed tables only; run_backtest.py draws the SOL-held chart, with
+    the rebalancing strategy alongside these two.
+    """
     from candle_bins import add_bins_to_dataframe
     from config import CONCENTRATED_BINS, USER_DEPOSIT
+    from data_io import load_candles
 
-    df = pd.read_csv("data/sol_1m.csv", parse_dates=["timestamp"])
+    df = load_candles()
     df = add_bins_to_dataframe(df, BIN_STEP)
 
     lo = min(min(b) for b in df["touched_bins"])
@@ -303,10 +309,8 @@ def run_real() -> None:
     print(f"close: first {df['close'].iloc[0]:.4f}, "
           f"last {df['close'].iloc[-1]:.4f}")
 
-    results = {}
     for name, pos in (("A wide", pos_a), ("B concentrated", pos_b)):
         inv_df = run_inventory(df, pos)
-        results[name] = inv_df
         n_bins = pos.range_end - pos.range_start + 1
         print(f"\n--- {name}: bins {pos.range_start}..{pos.range_end} "
               f"({n_bins} bins, ${pos.deposit_per_bin:.2f}/bin, UI "
@@ -322,31 +326,6 @@ def run_real() -> None:
                   f"({pct_sol:.0f}% in SOL)")
         print(f"  value range over the fortnight: "
               f"${inv_df['value'].min():.2f} .. ${inv_df['value'].max():.2f}")
-
-    os.makedirs("outputs", exist_ok=True)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-    ax1.axhspan(bin_price_ui(pos_b.range_start),
-                bin_price_ui(pos_b.range_end + 1),
-                color="#ea580c", alpha=0.12, label="B's price range")
-    ax1.plot(df["timestamp"], df["close"], color="#52525b", lw=1.0)
-    ax1.set_ylabel("price (USD)", color="#52525b")
-    ax1.legend(loc="best", frameon=False, fontsize=9)
-    ax1.set_title("SOL held by each position: price falling converts "
-                  "USDC bins to SOL", fontsize=11, color="#3f3f46")
-    ax2.plot(df["timestamp"], results["A wide"]["sol_held"],
-             color="#2563eb", lw=1.5, label="A wide")
-    ax2.plot(df["timestamp"], results["B concentrated"]["sol_held"],
-             color="#ea580c", lw=1.5, label="B concentrated")
-    ax2.set_ylabel("SOL held", color="#52525b")
-    ax2.legend(loc="best", frameon=False, fontsize=9)
-    for ax in (ax1, ax2):
-        ax.tick_params(colors="#52525b", labelsize=9)
-        for side in ("top", "right"):
-            ax.spines[side].set_visible(False)
-    fig.autofmt_xdate()
-    fig.tight_layout()
-    fig.savefig("outputs/inventory_sol_held.png", dpi=150)
-    print("\nchart saved to outputs/inventory_sol_held.png")
 
 
 if __name__ == "__main__":

@@ -85,8 +85,9 @@ if __name__ == "__main__":
 
     # --- Full-range and never-entered positions on the real CSV ------------
     from candle_bins import BIN_STEP, add_bins_to_dataframe
+    from data_io import load_candles
 
-    df = pd.read_csv("data/sol_1m.csv")
+    df = load_candles()
     df = add_bins_to_dataframe(df, BIN_STEP)
     total_bin_fees, _ = accumulate_bin_fees(df)
     total_fees = sum(total_bin_fees.values())

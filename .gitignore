@@ -4,5 +4,10 @@ NOTES.md
 __pycache__/
 *.pyc
 
+# The 1-year dataset ships as Parquet (25.8 MB, committed) so a deployment
+# has data without a fetch step. The 57 MB CSV it was built from is just an
+# intermediate — regenerate it with the fetch command in README.md.
+data/sol_1m_1y.csv
+
 # local tool settings
 .claude/

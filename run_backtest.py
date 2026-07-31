@@ -1,9 +1,11 @@
-"""Two example scenarios.
+"""Three example scenarios.
 
 A) Wide: the user's range covers every bin the price ever touched.
 B) Concentrated: a fixed CONCENTRATED_BINS-wide window centered on the
    first candle's active bin; earns nothing while price is outside.
-Same USER_DEPOSIT in both -> an apples-to-apples range-width comparison.
+C) Concentrated with rebalancing: same as B, but when price leaves the range
+   the position is closed and reopened centered on the current bin, paying
+   REBALANCE_COST on the SOL traded in the conversion.
 """
 
 import os
@@ -13,9 +15,13 @@ import pandas as pd
 
 from bin_math import get_bin_id_from_price, get_price_from_bin_id
 from candle_bins import BIN_STEP, add_bins_to_dataframe, raw_to_ui, ui_to_raw
-from config import BIN_TVL, CONCENTRATED_BINS, USER_DEPOSIT
+from config import BIN_TVL, CONCENTRATED_BINS, REBALANCE_COST, USER_DEPOSIT
+from data_io import load_candles
 from fees import accumulate_bin_fees
+from inventory import run_inventory
+from pnl import hodl_series, pnl_frame
 from position import make_position, run_position
+from strategies import run_strategy_c
 
 OUTPUT_DIR = "outputs"
 
@@ -41,7 +47,7 @@ def describe(name, position, user_fees, days):
 if __name__ == "__main__":
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    df = pd.read_csv("data/sol_1m.csv", parse_dates=["timestamp"])
+    df = load_candles()
     df = add_bins_to_dataframe(df, BIN_STEP)
     days = len(df) / 1440
 
@@ -63,6 +69,20 @@ if __name__ == "__main__":
         f"Scenario B: concentrated ({CONCENTRATED_BINS} bins on start bin "
         f"{center})", pos_b, fees_b, days)
 
+    # --- Scenario C: same window as B, recentred when price leaves it ------
+    # Computed here so every chart below can show all three strategies; the
+    # rebalance-by-rebalance report comes further down.
+    # C's HODL baseline is the same initial tokens as B (identical start).
+    # il is the price effect alone (costs added back and shown separately);
+    # net pnl = fees + il - costs = fees + (value - hodl).
+    c_frame, c_events = run_strategy_c(df, per_candle_bin_fees)
+    hodl_c = hodl_series(pos_b, df["close"])
+    cum_fees_c = c_frame["fee"].cumsum()
+    cum_cost_c = c_frame["cost"].cumsum()
+    net_c = cum_fees_c + c_frame["value"] - hodl_c
+    il_c = c_frame["value"] - hodl_c + cum_cost_c
+    total_c = cum_fees_c.iloc[-1]
+
     cum_a = fees_a.cumsum()
     cum_b = fees_b.cumsum()
 
@@ -82,12 +102,15 @@ if __name__ == "__main__":
     print(f"verify 2 OK: B earns > 0 on exactly the {in_range.sum()} candles "
           "whose candle touched the range")
 
-    # --- Main chart: cumulative fees, both scenarios -----------------------
+    # --- Main chart: cumulative fees, all three scenarios ------------------
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(df["timestamp"], cum_a, color="#2563eb", lw=1.8,
             label=f"A: wide ({hi - lo + 1} bins) — ${total_a:.2f}")
     ax.plot(df["timestamp"], cum_b, color="#ea580c", lw=1.8,
             label=f"B: concentrated ({CONCENTRATED_BINS} bins) — ${total_b:.2f}")
+    ax.plot(df["timestamp"], cum_fees_c, color="#7c3aed", lw=1.8,
+            label=f"C: rebalancing ({CONCENTRATED_BINS} bins, "
+                  f"{len(c_events)} rebalances) — ${total_c:.2f}")
     ax.set_title(f"Cumulative user fees on ${USER_DEPOSIT} over {days:.0f} days",
                  fontsize=11, color="#3f3f46")
     ax.set_ylabel("cumulative fees (USD)", color="#52525b")
@@ -148,8 +171,6 @@ if __name__ == "__main__":
     # --- Full accounting: fees vs impermanent loss -------------------------
     # IL here is position value minus the value of just HOLDING the initial
     # tokens: an opportunity cost versus holding, not a direct loss.
-    from pnl import pnl_frame
-
     scenarios = [("A wide", pos_a, fees_a), ("B concentrated", pos_b, fees_b)]
     pnls, rows = {}, []
     print("\n=== fees vs impermanent loss (both in USD, vs HODL) ===")
@@ -174,17 +195,34 @@ if __name__ == "__main__":
               f"-> net ${net:+.2f} ({apy:+.1%} APY)")
 
     # --- Full accounting chart: fees, IL, net PnL over time ----------------
-    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
-    for ax, (name, pos, fees) in zip(axes, scenarios):
-        p = pnls[name]
+    # C carries a third term, so its panel gets an extra costs line and the
+    # net-PnL identity in its label picks up the "- costs".
+    panels = [
+        ("A wide", f"bins {pos_a.range_start}..{pos_a.range_end}",
+         pnls["A wide"]["cum_fees"], pnls["A wide"]["il"],
+         pnls["A wide"]["net_pnl"], None),
+        ("B concentrated", f"bins {pos_b.range_start}..{pos_b.range_end}",
+         pnls["B concentrated"]["cum_fees"], pnls["B concentrated"]["il"],
+         pnls["B concentrated"]["net_pnl"], None),
+        ("C rebalancing",
+         f"{CONCENTRATED_BINS} bins, {len(c_events)} rebalances",
+         cum_fees_c, il_c, net_c, cum_cost_c),
+    ]
+    fig, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+    for ax, (name, subtitle, cum_fees, il, net, costs) in zip(axes, panels):
         ax.axhline(0, color="#b3b3bd", lw=0.8)
-        ax.plot(df["timestamp"], p["cum_fees"], color="#2563eb", lw=1.6,
-                label=f"cumulative fees (${p['cum_fees'].iloc[-1]:+.2f})")
-        ax.plot(df["timestamp"], p["il"], color="#ea580c", lw=1.6,
-                label=f"IL vs HODL (${p['il'].iloc[-1]:+.2f})")
-        ax.plot(df["timestamp"], p["net_pnl"], color="#111827", lw=2.0,
-                label=f"net PnL = fees + IL (${p['net_pnl'].iloc[-1]:+.2f})")
-        ax.set_title(f"{name}: bins {pos.range_start}..{pos.range_end}",
+        ax.plot(df["timestamp"], cum_fees, color="#2563eb", lw=1.6,
+                label=f"cumulative fees (${cum_fees.iloc[-1]:+.2f})")
+        ax.plot(df["timestamp"], il, color="#ea580c", lw=1.6,
+                label=f"IL vs HODL (${il.iloc[-1]:+.2f})")
+        formula = "fees + IL"
+        if costs is not None:
+            ax.plot(df["timestamp"], -costs, color="#71717a", lw=1.4,
+                    label=f"rebalance costs (${-costs.iloc[-1]:+.2f})")
+            formula = "fees + IL - costs"
+        ax.plot(df["timestamp"], net, color="#111827", lw=2.0,
+                label=f"net PnL = {formula} (${net.iloc[-1]:+.2f})")
+        ax.set_title(f"{name}: {subtitle}",
                      fontsize=10, color="#3f3f46", loc="left")
         ax.set_ylabel("USD", color="#52525b")
         ax.legend(loc="lower left", fontsize=9, framealpha=0.9,
@@ -204,12 +242,6 @@ if __name__ == "__main__":
     # C starts identical to B; when a candle closes outside its range it
     # closes the position and reopens it centered on the current bin,
     # paying REBALANCE_COST on the SOL traded in the conversion.
-    from config import REBALANCE_COST
-    from pnl import hodl_series
-    from strategies import run_strategy_c
-
-    c_frame, c_events = run_strategy_c(df, per_candle_bin_fees)
-
     print(f"\n=== strategy C: rebalancing concentrated "
           f"({CONCENTRATED_BINS} bins, cost {REBALANCE_COST:.2%} of value "
           f"traded) ===")
@@ -221,15 +253,6 @@ if __name__ == "__main__":
               f"{e['direction']} {abs(e['sol_traded']):.4f} SOL "
               f"(${abs(e['sol_traded']) * e['close']:.2f} changed hands, "
               f"cost ${e['cost']:.4f}), new range {lo}..{hi}")
-
-    # C's HODL baseline is the same initial tokens as B (identical start).
-    # il is the price effect alone (costs added back and shown separately);
-    # net pnl = fees + il - costs = fees + (value - hodl).
-    hodl_c = hodl_series(pos_b, df["close"])
-    cum_fees_c = c_frame["fee"].cumsum()
-    cum_cost_c = c_frame["cost"].cumsum()
-    net_c = cum_fees_c + c_frame["value"] - hodl_c
-    il_c = c_frame["value"] - hodl_c + cum_cost_c
 
     table = [
         ("A wide", pnls["A wide"]["cum_fees"].iloc[-1],
@@ -289,3 +312,49 @@ if __name__ == "__main__":
     fig.tight_layout()
     fig.savefig(f"{OUTPUT_DIR}/strategies.png", dpi=150)
     print(f"\nchart saved to {OUTPUT_DIR}/strategies.png")
+
+    # --- Inventory chart: SOL held by each strategy ------------------------
+    # A falling price converts USDC bins to SOL, so a passive position drifts
+    # into SOL; C's rebalances reset the mix, so its line saw-tooths instead.
+    inventories = [
+        ("A wide", run_inventory(df, pos_a), "#2563eb"),
+        ("B concentrated", run_inventory(df, pos_b), "#ea580c"),
+        ("C rebalancing", c_frame, "#7c3aed"),
+    ]
+
+    end_close = df["close"].iloc[-1]
+    print("\n=== SOL held (inventory, fees excluded) ===")
+    print(f"{'strategy':16s} {'start':>10s} {'end':>10s} {'% SOL at end':>13s}")
+    for name, frame, _ in inventories:
+        sol = frame["sol_held"]
+        pct_sol = sol.iloc[-1] * end_close / frame["value"].iloc[-1]
+        print(f"{name:16s} {sol.iloc[0]:10.4f} {sol.iloc[-1]:10.4f}"
+              f" {pct_sol:12.0%}")
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    ax1.axhspan(band_lo, band_hi, color="#ea580c", alpha=0.12,
+                label="B's price range")
+    ax1.plot(df["timestamp"], df["close"], color="#52525b", lw=1.0)
+    ax1.set_ylabel("price (USD)", color="#52525b")
+    ax1.legend(loc="best", frameon=False, fontsize=9)
+    ax1.set_title("SOL held by each strategy: price falling converts "
+                  "USDC bins to SOL", fontsize=11, color="#3f3f46")
+    for name, frame, color in inventories:
+        ax2.plot(df["timestamp"], frame["sol_held"], color=color, lw=1.5,
+                 label=name)
+    if c_events:
+        idx = [e["index"] for e in c_events]
+        ax2.scatter(df["timestamp"].iloc[idx],
+                    c_frame["sol_held"].iloc[idx], s=28, color="#7c3aed",
+                    edgecolors="white", linewidths=1.2, zorder=3,
+                    label="rebalance")
+    ax2.set_ylabel("SOL held", color="#52525b")
+    ax2.legend(loc="best", frameon=False, fontsize=9)
+    for ax in (ax1, ax2):
+        ax.tick_params(colors="#52525b", labelsize=9)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    fig.savefig(f"{OUTPUT_DIR}/inventory_sol_held.png", dpi=150)
+    print(f"\nchart saved to {OUTPUT_DIR}/inventory_sol_held.png")

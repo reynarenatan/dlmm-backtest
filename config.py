@@ -1,5 +1,9 @@
 """All tunable parameters for the DLMM backtester in one place."""
 
+# Which candle file every module loads. Both datasets are committed, so this
+# works on a fresh clone either way; see the README for their ranges.
+DATA_FILE = "data/sol_1m_1y.parquet"
+
 BIN_STEP = 20  # basis points; a common step for SOL pools (each bin 0.2% apart)
 POOL_SHARE = 0.02  # this pool captures 2% of total market volume
 FEE_RATE = 0.001  # 0.1% trading fee 

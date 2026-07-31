@@ -187,7 +187,9 @@ if __name__ == "__main__":
 
     import pandas as pd
 
-    df = pd.read_csv("data/sol_1m.csv")
+    from data_io import load_candles
+
+    df = load_candles()
     fees = df["volume_usd"].map(lambda v: candle_fee(v, POOL_SHARE, FEE_RATE))
     days = len(df) / 1440  # 1440 one-minute candles per day
 
