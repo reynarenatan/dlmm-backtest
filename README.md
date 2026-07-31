@@ -18,9 +18,9 @@ module loads is set by `DATA_FILE` in `config.py`.
 | `data/sol_1m_14d.csv` | 2026-07-05 14:41 → 2026-07-19 14:40 | 20,160 | 2.3 MB |
 
 Both are committed, so a fresh clone (or a deployment) has data without a
-fetch step. Switch between them by editing `DATA_FILE`; the 14-day set is
-the one the fortnight results below were produced from, and is small enough
-to iterate on quickly.
+fetch step. Switch between them by editing `DATA_FILE`; the results below
+are from the year, and the 14-day set is small enough to iterate on
+quickly (a full run takes about a second on it, against 96 s on the year).
 
 The year ships as Parquet rather than CSV because at this size the format
 carries its weight: 0.2 s to load versus ~15 s for the same rows as CSV, and
@@ -54,54 +54,86 @@ Checked with `python verify_data.py data/sol_1m_1y.csv`:
 
 ![SOL daily close over the year](data/sol_1y_daily.png)
 
-## Results (14 days of 1-minute data, 2026-07-05 → 2026-07-19)
+## Results (1 year of 1-minute data, 2025-07-28 → 2026-07-28)
 
-Produced from `data/sol_1m_14d.csv`.
+Produced from `data/sol_1m_1y.parquet`, the default dataset.
 
-Same $1,000 deposit in all three strategies. Impermanent loss (IL) is
+Both strategies put the same $1,000 into the same 69-bin range; the only
+difference is whether the range is ever moved. Impermanent loss (IL) is
 measured against holding the initial tokens untouched, so net PnL is what
 LPing earned *over just holding*.
 
-| strategy | fees | IL | costs | net PnL | net APY | rebalances |
+| strategy | fees | IL | costs | net PnL vs HODL | net APY | rebalances |
 |---|---|---|---|---|---|---|
-| A: passive wide (68 bins, $73.14–$83.78) | $121.41 | −$14.16 | — | **+$107.25** | 279.6% | 0 |
-| B: passive concentrated (51 bins, $77.19–$85.47) | $96.73 | −$18.32 | — | **+$78.41** | 204.4% | 0 |
-| C: rebalancing concentrated (51 bins) | $157.47 | −$13.18 | $0.49 | **+$143.80** | 374.9% | 1 |
+| passive (69 bins, $189.97–$195.29) | $401.63 | −$331.27 | — | **+$70.36** | 7.0% | 0 |
+| rebalancing (69 bins) | $1,123.13 | −$603.67 | $107.38 | **+$412.08** | 41.2% | 2,236 |
 
 ![Net PnL by strategy](outputs/strategies.png)
 
-**Fee side.** The concentrated position holds a larger share of each bin
-it occupies (0.196% vs 0.147%) and out-earned the wide one for the first
-~10 days. On July 16 the price dropped below its lower bound ($77.19) and
-never returned, so it earned nothing for the final ~3.3 days and the wide
-position overtook it:
+SOL fell 62.1% over this year ($192.73 → $73.14), which is the single
+fact driving every number below.
+
+**The passive position is barely a baseline.** Its range was fixed on the
+first candle at $189.97–$195.29. Price left it early and never came back,
+so it earned on **2.6% of candles** (13,451 of 525,420) and collected 3.4%
+of the pool's fees — essentially all of it in the first weeks. After that
+it is a 100%-SOL bag riding the price down. It is here to answer "did
+rebalancing help", and the answer is yes, decisively.
 
 ![Cumulative fees](outputs/cumulative_fees.png)
 
-**Fees vs impermanent loss.** Fees covered IL in both passive scenarios,
-but concentration amplifies both sides with the same lever: fewer bins →
-more dollars per bin → a bigger share of each bin's fees *and* more
-dollars converted on every bin crossing. B gave up ~19¢ of IL per fee
-dollar versus A's ~12¢, and being out of range combines the worst of
-both worlds — zero fee income while fully exposed to the price (the
-position is 100% SOL below its range):
+**Rebalancing beat holding, in absolute terms.** Following the price down
+over 2,236 rebalances, it collected $1,123.13 of fees on a $996.96
+deposit. Fees are withdrawn as earned, not compounded back in, so the
+final wealth is fees plus whatever the position is still worth:
+
+| | rebalancing | HODL |
+|---|---|---|
+| starting value | $996.96 | $996.96 |
+| fees collected | $1,123.13 | — |
+| ending position value | $0.02 | $711.07 |
+| **total** | **$1,123.15** (+12.7%) | **$711.07** (−28.7%) |
+
+**Read the APY column carefully — it is measured against HODL, not
+against the deposit.** "+41.2%" means it beat holding by $412 over a year;
+the absolute return on the money was +12.7%. Those are very different
+claims, and only the second one is what a user gets.
+
+This also explains the shape of the rebalancing line after early 2026: it
+keeps drifting up while the position earns nothing. With the position at
+roughly zero, net PnL is `fees − HODL`, so every further fall in SOL
+*raises* it. That late rise is the baseline sinking, not the strategy
+working.
+
+**The position bleeds to nothing, and that caps the strategy.** Its value
+goes $996.96 → $0.02, and fee income decays with it — **94% of the
+$1,123.13 was earned in the first 90 days**:
+
+| month end | 2025-07 | 2025-08 | 2025-09 | 2025-10 | 2025-11 | 2025-12 | 2026-01 | 2026-03 | 2026-07 |
+|---|---|---|---|---|---|---|---|---|---|
+| position value | $852.04 | $307.29 | $162.20 | $37.45 | $8.67 | $3.97 | $1.80 | $0.16 | $0.02 |
+| fees that month | $110.78 | $604.08 | $240.21 | $118.65 | $32.71 | $10.07 | $5.23 | $0.13 | $0.01 |
+
+This is not an accounting bug. On a closed price loop with `REBALANCE_COST`
+set to zero, the passive position returns to exactly its starting value
+(+0.000000%) while rebalancing loses **0.354% per rebalance** — the
+buy-high/sell-low cost of recentring, about 3.5× larger than the 0.1%
+explicit cost. Over 2,236 rebalances that compounds the position away.
+Rebalancing converts impermanent loss into *permanent* loss, and the fee
+income has to outrun it.
+
+So the annualized figure is not repeatable: by month five the position is
+worth $8 and earns nothing. Realizing anything like it again means
+redepositing, which is a different (and untested) strategy.
+
+**Cost sensitivity.** The verdict survives the cost assumption, though
+the margin does not:
+
+| `REBALANCE_COST` | 0% | 0.1% | 0.5% |
+|---|---|---|---|
+| net PnL vs HODL | +$556.43 | +$412.08 | +$53.67 |
 
 ![Fees, IL and net PnL](outputs/net_pnl.png)
-
-**Rebalancing.** Strategy C starts identical to B; when a candle closes
-outside the range it closes the position and reopens the same width
-centered on the current bin, paying 0.1% on the value traded in the
-conversion. On this dataset that happened exactly once (July 8: sold
-6.36 SOL at $77.19, cost $0.49) and the new range held for the remaining
-11 days — so C kept B's concentrated fee share while staying in range
-almost always, and beat both passive strategies. The verdict is robust to
-the cost assumption here (net +$144.34 / +$143.80 / +$141.62 at 0% /
-0.1% / 0.5%) but only because a single rebalance occurred: a price that
-oscillates around a range edge triggers repeated rebalances, each of
-which pays the cost *and* realizes the loss accumulated on the way out
-(selling low after a fall, re-buying high after a rise). Rebalancing
-converts impermanent loss into permanent loss; this fortnight was simply
-a favorable path for it.
 
 The engine thus measures the two legs any range-management or hedging
 approach is judged against: the fee income a position keeps, and the
@@ -111,7 +143,7 @@ price-exposure cost (IL) that must be managed away.
 
 | File | Purpose |
 |---|---|
-| `config.py` | All tunable parameters (bin step, pool share, fee rate, TVL, deposit, range width, fee split mode, rebalance cost) |
+| `config.py` | All tunable parameters (bin step, pool share, fee rate, TVL, deposit, position width and the `MAX_BINS` ceiling, fee split mode, rebalance cost) |
 | `bin_math.py` | Bin ↔ price math: `price(i) = (1 + bin_step/10000)^i` and its inverse |
 | `fetch_data.py` | Fetches 1-minute SOL OHLCV from Jupiter's chart API (`--days`, `--out`) |
 | `data_io.py` | Loads the configured dataset (CSV or Parquet); converts CSV → Parquet |
@@ -122,14 +154,19 @@ price-exposure cost (IL) that must be managed away.
 | `inventory.py` | Token inventory per bin (USDC below the price, SOL above), flips as price crosses bins, position value |
 | `pnl.py` | HODL baseline, impermanent loss, net PnL (fees + IL) |
 | `strategies.py` | Rebalancing strategy: close-outside-range trigger, recenter, cost on the value traded |
-| `run_backtest.py` | Runs all three strategies end to end, prints the tables, writes charts to `outputs/` |
+| `run_backtest.py` | Runs both strategies end to end, prints the tables, writes charts to `outputs/` |
 | `test_bin_math.py` | Tests for the bin math |
-| `data/sol_1m_14d.csv` | The exact dataset the results above were produced from (committed for reproducibility) |
+| `data/sol_1m_1y.parquet` | The exact dataset the results above were produced from (committed for reproducibility) |
 
 Bin ids use the **raw on-chain price convention** (price in token base
-units: SOL 9 decimals, USDC 6), so SOL at ~$76 sits near bin −1287 at
-step 20 and ids match on-chain tooling. The data files store human (UI)
+units: SOL 9 decimals, USDC 6), so SOL at ~$76 sits near bin −6444 at
+step 4 and ids match on-chain tooling. The data files store human (UI)
 prices; `candle_bins.py` converts internally.
+
+Positions are a fixed `POSITION_BINS`-wide range (69, Meteora's default),
+and `make_position` rejects anything wider than `MAX_BINS`. Every position
+in the engine — including the ones a rebalance opens — is built there, so
+there is no path around the ceiling.
 
 ## How to run
 
@@ -155,9 +192,13 @@ python strategies.py       # rebalancing checks (equivalence, value neutrality, 
 - Data: 20,160 rows, no duplicate timestamps, no gaps, no zero-volume rows
   (14-day set; see Data quality above for the 1-year set).
 - Fee conservation: per candle, distributed bin fees sum exactly to the candle
-  fee (asserted for all 20,160 candles); per-bin totals sum to total pool fees.
-- Scenario A's cumulative curve is monotone and matches the analytic total;
-  scenario B is flat exactly when price is outside its range.
+  fee (asserted for every candle in the dataset); per-bin totals sum to total
+  pool fees.
+- The passive position's cumulative curve is monotone and matches the analytic
+  total — with equal shares across the range, its fees must come to exactly
+  `share × (fees landing in range)` — and is flat exactly when price is
+  outside the range.
+- A position wider than `MAX_BINS` is rejected by `make_position`.
 - Inventory: a price round trip restores every bin's exact tokens and value;
   value is constant when no bin is crossed and all bins hold USDC.
 - IL: ≤ 0 at every candle (an LP never beats holding without fees); closes to

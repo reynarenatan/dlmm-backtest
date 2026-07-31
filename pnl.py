@@ -22,15 +22,18 @@ def hodl_series(position: Position, closes: pd.Series) -> pd.Series:
     return usdc0 + sol0 * closes
 
 
-def pnl_frame(df, position: Position, user_fees: pd.Series) -> pd.DataFrame:
+def pnl_frame(df, position: Position, user_fees: pd.Series,
+              inventory: pd.DataFrame = None) -> pd.DataFrame:
     """Per-candle PnL accounting.
 
     df needs a close column; user_fees is the per-candle fee series
-    aligned to df (pass zeros for a fee-free run).
+    aligned to df (pass zeros for a fee-free run). Pass inventory if the
+    caller already walked it for this position -- that walk is the most
+    expensive part of a run and its result is identical here.
 
     Columns: value, hodl, il, cum_fees, net_pnl.
     """
-    inv = run_inventory(df, position)
+    inv = run_inventory(df, position) if inventory is None else inventory
     hodl = hodl_series(position, df["close"])
     il = inv["value"] - hodl
     cum_fees = user_fees.cumsum()

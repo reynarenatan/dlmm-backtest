@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from config import BIN_TVL, USER_DEPOSIT
+from config import BIN_TVL, MAX_BINS, USER_DEPOSIT
 from fees import accumulate_bin_fees
 
 
@@ -29,8 +29,17 @@ def make_position(total_deposit: float, range_start: int, range_end: int,
     example needs per-bin TVLs, so a dict {bin_id: tvl} is also
     accepted — the difference is absorbed HERE, into the precomputed
     shares; Position and everything downstream never know about it.
+
+    Every position in the engine is built here, so this is where the
+    MAX_BINS ceiling is enforced.
     """
     n_bins = range_end - range_start + 1
+    if n_bins > MAX_BINS:
+        raise ValueError(
+            f"position spans {n_bins} bins ({range_start}..{range_end}), "
+            f"more than MAX_BINS={MAX_BINS}. Positions are a fixed "
+            f"POSITION_BINS-wide range; a wider one cannot be opened."
+        )
     deposit_per_bin = total_deposit / n_bins
     shares = {}
     for bin_id in range(range_start, range_end + 1):
@@ -53,9 +62,15 @@ def user_fee_for_candle(position: Position,
     )
 
 
-def run_position(df, position: Position) -> pd.Series:
-    """Per-candle user fees over a dataframe that already has touched_bins."""
-    _, per_candle_bin_fees = accumulate_bin_fees(df)
+def run_position(df, position: Position, per_candle_bin_fees=None) -> pd.Series:
+    """Per-candle user fees over a dataframe that already has touched_bins.
+
+    Pass per_candle_bin_fees if the caller already accumulated them; the
+    split does not depend on the position, so recomputing it per strategy
+    is a wasted pass over the whole dataset.
+    """
+    if per_candle_bin_fees is None:
+        _, per_candle_bin_fees = accumulate_bin_fees(df)
     return pd.Series(
         [user_fee_for_candle(position, fees) for fees in per_candle_bin_fees],
         index=df.index,
@@ -83,27 +98,37 @@ if __name__ == "__main__":
     print(f"user fee for the candle: ${total:.6f}")
     assert abs(total - 2.875) < 1e-9
 
-    # --- Full-range and never-entered positions on the real CSV ------------
-    from candle_bins import BIN_STEP, add_bins_to_dataframe
+    # --- A real position on the real data ---------------------------------
+    from bin_math import get_bin_id_from_price
+    from candle_bins import BIN_STEP, add_bins_to_dataframe, ui_to_raw
+    from config import POSITION_BINS
     from data_io import load_candles
 
     df = load_candles()
     df = add_bins_to_dataframe(df, BIN_STEP)
-    total_bin_fees, _ = accumulate_bin_fees(df)
+    total_bin_fees, per_candle_bin_fees = accumulate_bin_fees(df)
     total_fees = sum(total_bin_fees.values())
 
-    lo, hi = min(total_bin_fees), max(total_bin_fees)
-    n_bins = hi - lo + 1
-    pos_all = make_position(USER_DEPOSIT, lo, hi)
-    user_fees = run_position(df, pos_all)
+    center = get_bin_id_from_price(ui_to_raw(df["open"].iloc[0]), BIN_STEP)
+    half = POSITION_BINS // 2
+    pos = make_position(USER_DEPOSIT, center - half, center + half)
+    user_fees = pd.Series(
+        [user_fee_for_candle(pos, f) for f in per_candle_bin_fees],
+        index=df.index)
 
-    # Equal shares everywhere, so the user's total must be exactly their
-    # share of ALL fees: (deposit_per_bin / BIN_TVL) * total_fees.
-    expected = pos_all.deposit_per_bin / BIN_TVL * total_fees
-    print(f"\n--- position covering all touched bins ({lo}..{hi}, "
-          f"{n_bins} bins) ---")
-    print(f"deposit per bin: ${pos_all.deposit_per_bin:.2f} "
-          f"-> share per bin {pos_all.deposit_per_bin / BIN_TVL:.6%}")
+    # Shares are equal across the range, so the user's total must be exactly
+    # their per-bin share of the fees that landed INSIDE the range. (Before
+    # positions were capped this was stated against every touched bin; a
+    # capped position only ever sees its own slice of the bins.)
+    in_range = sum(fee for b, fee in total_bin_fees.items()
+                   if pos.range_start <= b <= pos.range_end)
+    expected = pos.deposit_per_bin / BIN_TVL * in_range
+    print(f"\n--- {POSITION_BINS}-bin position on the first candle's bin "
+          f"({pos.range_start}..{pos.range_end}) ---")
+    print(f"deposit per bin: ${pos.deposit_per_bin:.2f} "
+          f"-> share per bin {pos.deposit_per_bin / BIN_TVL:.6%}")
+    print(f"fees landing in range: ${in_range:.2f} of ${total_fees:.2f} pool "
+          f"total ({in_range / total_fees:.1%})")
     print(f"user total fees: ${user_fees.sum():.4f} (expected ${expected:.4f})")
     assert abs(user_fees.sum() - expected) < 1e-6
     assert user_fees.sum() < total_fees  # sanity bound: never out-earn the pool
@@ -113,6 +138,18 @@ if __name__ == "__main__":
           f"deposit -> {user_fees.sum() / days / USER_DEPOSIT:.4%}/day")
 
     # A range the price never entered earns exactly zero.
-    pos_far = make_position(USER_DEPOSIT, hi + 100, hi + 109)
+    far = max(total_bin_fees) + 100
+    pos_far = make_position(USER_DEPOSIT, far, far + 9)
     assert run_position(df, pos_far).sum() == 0.0
-    print(f"\nposition at {hi + 100}..{hi + 109} (never touched): $0.00 -- OK")
+    print(f"\nposition at {far}..{far + 9} (never touched): $0.00 -- OK")
+
+    # --- The MAX_BINS ceiling ---------------------------------------------
+    # The wide "cover every touched bin" scenario used to live here. It is
+    # gone: its range could only be known after seeing the whole price path,
+    # which is lookahead the engine now refuses to express.
+    try:
+        make_position(USER_DEPOSIT, center - half, center + half + 1)
+    except ValueError as e:
+        print(f"\n{POSITION_BINS + 1}-bin position rejected -- OK\n  {e}")
+    else:
+        raise AssertionError("a position wider than MAX_BINS must be rejected")

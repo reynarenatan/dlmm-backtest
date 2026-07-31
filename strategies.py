@@ -1,10 +1,14 @@
 """Position management strategies compared over the same candle data.
 
-A) Passive wide: one position covering every touched bin, never touched.
-B) Passive concentrated: CONCENTRATED_BINS wide, set once, never touched.
-C) Rebalancing concentrated: same width as B, but whenever a candle
-   CLOSES outside the range, the position is closed and reopened
-   centered on the bin the close sits in.
+Both strategies hold the same POSITION_BINS-wide range (Meteora's default
+position range), so the only thing separating them is whether that range
+is ever moved:
+
+- passive: set once on the first candle and never touched. A baseline,
+  kept only so we can say whether rebalancing helped.
+- rebalancing: whenever a candle CLOSES outside the range, the position
+  is closed and reopened centered on the bin the close sits in. This is
+  what users actually do, and the strategy being evaluated.
 
 Rebalance model (deliberately simple):
 - holdings are marked to market at the close -> value V.
@@ -25,7 +29,7 @@ Rebalance model (deliberately simple):
 
 import pandas as pd
 
-from config import CONCENTRATED_BINS, REBALANCE_COST, USER_DEPOSIT
+from config import POSITION_BINS, REBALANCE_COST, USER_DEPOSIT
 from fees import accumulate_bin_fees
 from inventory import (active_bin, bin_price_ui, inventory_totals,
                        make_inventory, position_value, update_inventory)
@@ -74,12 +78,12 @@ def rebalance(inv: dict, close: float, width: int,
     return new_pos, new_inv, event
 
 
-def run_strategy_c(df, per_candle_bin_fees=None, width=CONCENTRATED_BINS,
-                   cost_rate=REBALANCE_COST):
-    """Walk the candles managing a rebalancing concentrated position.
+def run_rebalancing(df, per_candle_bin_fees=None, width=POSITION_BINS,
+                    cost_rate=REBALANCE_COST):
+    """Walk the candles managing a rebalancing position.
 
-    Starts exactly like the passive concentrated scenario (same center,
-    same deposit); each candle earns the current position's fee, then
+    Starts exactly like the passive scenario (same center, same
+    deposit); each candle earns the current position's fee, then
     the inventory absorbs the close, then a close outside the range
     triggers a rebalance (which affects fees from the NEXT candle on).
 
@@ -150,7 +154,8 @@ def print_events(df, events) -> None:
 
 def check_equals_passive_when_inside() -> None:
     print("=" * 72)
-    print("CHECK 1 -- price never leaves the range: C must equal B exactly")
+    print("CHECK 1 -- price never leaves the range: rebalancing must equal "
+          "passive exactly")
     print("=" * 72)
     a = active_bin(76.0)
     width, half = 5, 2
@@ -159,21 +164,21 @@ def check_equals_passive_when_inside() -> None:
     print(f"  range: bins {a - half}..{a + half} (width {width}); "
           f"close path (active bin): {path}")
 
-    frame_c, events = run_strategy_c(df, width=width)
+    frame_reb, events = run_rebalancing(df, width=width)
 
-    # Passive concentrated over the same data, built the same way.
+    # The passive position over the same data, built the same way.
     from inventory import run_inventory
-    pos_b = make_position(USER_DEPOSIT, a - half, a + half)
+    pos_p = make_position(USER_DEPOSIT, a - half, a + half)
     _, per_candle = accumulate_bin_fees(df)
-    fees_b = [user_fee_for_candle(pos_b, f) for f in per_candle]
-    inv_b = run_inventory(df, pos_b)
+    fees_p = [user_fee_for_candle(pos_p, f) for f in per_candle]
+    inv_p = run_inventory(df, pos_p)
 
     assert not events, "no candle left the range, so no rebalance"
-    assert frame_c["fee"].tolist() == fees_b
-    assert frame_c["value"].tolist() == inv_b["value"].tolist()
-    assert frame_c["cost"].sum() == 0.0
-    print(f"  0 rebalances; fee and value series identical to B at every "
-          f"candle (total fees ${frame_c['fee'].sum():.4f}) -- PASS")
+    assert frame_reb["fee"].tolist() == fees_p
+    assert frame_reb["value"].tolist() == inv_p["value"].tolist()
+    assert frame_reb["cost"].sum() == 0.0
+    print(f"  0 rebalances; fee and value series identical to passive at "
+          f"every candle (total fees ${frame_reb['fee'].sum():.4f}) -- PASS")
 
 
 def check_zero_cost_continuity() -> None:
@@ -186,7 +191,7 @@ def check_zero_cost_continuity() -> None:
     down = list(range(a, a - 8, -1))
     for name, path in (("rise", up), ("fall", down)):
         df = make_synthetic_df(path)
-        frame, events = run_strategy_c(df, width=5, cost_rate=0.0)
+        frame, events = run_rebalancing(df, width=5, cost_rate=0.0)
         assert events, "path must actually leave the range"
         for e in events:
             recorded = frame["value"].iloc[e["index"]]
@@ -208,14 +213,14 @@ def check_trade_directions() -> None:
     print("  steady RISE (position turns all-USDC on the way up, so the")
     print("  new upper bins must be bought):")
     df = make_synthetic_df(list(range(a, a + 8)))
-    _, events = run_strategy_c(df, width=5)
+    _, events = run_rebalancing(df, width=5)
     print_events(df, events)
     assert events and all(e["direction"] == "BUY" for e in events)
 
     print("  steady FALL (position turns all-SOL on the way down, so the")
     print("  new lower bins' USDC must come from selling):")
     df = make_synthetic_df(list(range(a, a - 8, -1)))
-    _, events = run_strategy_c(df, width=5)
+    _, events = run_rebalancing(df, width=5)
     print_events(df, events)
     assert events and all(e["direction"] == "SELL" for e in events)
     print("  directions match on both paths -- PASS")

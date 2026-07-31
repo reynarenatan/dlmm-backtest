@@ -286,46 +286,41 @@ def check_one_way() -> None:
 
 
 def run_real() -> None:
-    """Inventory of the two passive scenarios over the real 14-day CSV.
+    """Inventory of the passive position over the configured dataset.
 
     Printed tables only; run_backtest.py draws the SOL-held chart, with
-    the rebalancing strategy alongside these two.
+    the rebalancing strategy alongside this one.
     """
     from candle_bins import add_bins_to_dataframe
-    from config import CONCENTRATED_BINS, USER_DEPOSIT
+    from config import POSITION_BINS, USER_DEPOSIT
     from data_io import load_candles
 
     df = load_candles()
     df = add_bins_to_dataframe(df, BIN_STEP)
 
-    lo = min(min(b) for b in df["touched_bins"])
-    hi = max(max(b) for b in df["touched_bins"])
-    pos_a = make_position(USER_DEPOSIT, lo, hi)
-
     center = active_bin(df["open"].iloc[0])
-    half = CONCENTRATED_BINS // 2
-    pos_b = make_position(USER_DEPOSIT, center - half, center + half)
+    half = POSITION_BINS // 2
+    pos = make_position(USER_DEPOSIT, center - half, center + half)
 
     print(f"close: first {df['close'].iloc[0]:.4f}, "
           f"last {df['close'].iloc[-1]:.4f}")
 
-    for name, pos in (("A wide", pos_a), ("B concentrated", pos_b)):
-        inv_df = run_inventory(df, pos)
-        n_bins = pos.range_end - pos.range_start + 1
-        print(f"\n--- {name}: bins {pos.range_start}..{pos.range_end} "
-              f"({n_bins} bins, ${pos.deposit_per_bin:.2f}/bin, UI "
-              f"{bin_price_ui(pos.range_start):.2f}-"
-              f"{bin_price_ui(pos.range_end + 1):.2f}) ---")
-        for label, row, close in (
-            ("start", inv_df.iloc[0], df["close"].iloc[0]),
-            ("end  ", inv_df.iloc[-1], df["close"].iloc[-1]),
-        ):
-            pct_sol = row["sol_held"] * close / row["value"] * 100
-            print(f"  {label}: {row['sol_held']:9.4f} SOL + "
-                  f"{row['usdc_held']:8.2f} USDC = ${row['value']:.2f} "
-                  f"({pct_sol:.0f}% in SOL)")
-        print(f"  value range over the fortnight: "
-              f"${inv_df['value'].min():.2f} .. ${inv_df['value'].max():.2f}")
+    inv_df = run_inventory(df, pos)
+    n_bins = pos.range_end - pos.range_start + 1
+    print(f"\n--- passive: bins {pos.range_start}..{pos.range_end} "
+          f"({n_bins} bins, ${pos.deposit_per_bin:.2f}/bin, UI "
+          f"{bin_price_ui(pos.range_start):.2f}-"
+          f"{bin_price_ui(pos.range_end + 1):.2f}) ---")
+    for label, row, close in (
+        ("start", inv_df.iloc[0], df["close"].iloc[0]),
+        ("end  ", inv_df.iloc[-1], df["close"].iloc[-1]),
+    ):
+        pct_sol = row["sol_held"] * close / row["value"] * 100
+        print(f"  {label}: {row['sol_held']:9.4f} SOL + "
+              f"{row['usdc_held']:8.2f} USDC = ${row['value']:.2f} "
+              f"({pct_sol:.0f}% in SOL)")
+    print(f"  value range over the period: "
+          f"${inv_df['value'].min():.2f} .. ${inv_df['value'].max():.2f}")
 
 
 if __name__ == "__main__":
