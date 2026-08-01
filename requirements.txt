@@ -1,0 +1,5 @@
+# What the deployed app needs, and nothing else. app.py reads precomputed
+# JSON, so the engine's dependencies (pandas, pyarrow, matplotlib) are not
+# installed on the server -- they are only needed to run precompute.py
+# locally.
+streamlit==1.60.0

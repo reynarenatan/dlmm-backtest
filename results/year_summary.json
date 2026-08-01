@@ -1,0 +1,57 @@
+{
+  "params": {
+    "dataset": "data/sol_1m_1y.parquet",
+    "strategy": "rebalancing",
+    "candles": 525420,
+    "days": 364.875,
+    "start": "2025-07-28 10:10:00",
+    "end": "2026-07-28 10:09:00",
+    "deposit": 1000,
+    "position_bins": 69,
+    "bin_step": 4,
+    "pool_share": 0.08,
+    "fee_rate": 0.0004,
+    "fee_distribution": "weighted",
+    "bin_tvl": 13500,
+    "rebalance_cost": 0.001
+  },
+  "hodl": {
+    "entry_value": 996.9554126198866,
+    "end_value": 711.0683209882616,
+    "absolute_return_pct": -28.676015798975996
+  },
+  "strategies": {
+    "passive": {
+      "total_fees": 297.5014969542379,
+      "total_il": -331.26827626665676,
+      "total_costs": 0.0,
+      "net_pnl": -33.76677931241886,
+      "net_apy": -0.033778347239555695,
+      "gross_fee_apy": 0.2976034159322969,
+      "break_even_fee_rate": 0.0004454004832353673,
+      "final_value": 379.8000447216048,
+      "rebalances": 0,
+      "time_in_range_pct": 2.5600472003349704,
+      "entry_value": 996.9554126198866,
+      "hodl_end": 711.0683209882616,
+      "total_wealth": 677.3015416758427,
+      "absolute_return_pct": -32.06300571697881
+    },
+    "rebalancing": {
+      "total_fees": 831.9506725246006,
+      "total_il": -603.669621505125,
+      "total_costs": 107.38073862697053,
+      "net_pnl": 120.90031239250516,
+      "net_apy": 0.12094173079346182,
+      "gross_fee_apy": 0.8322356847454038,
+      "break_even_fee_rate": 0.0003418714034928891,
+      "final_value": 0.017960856166192633,
+      "rebalances": 2236,
+      "time_in_range_pct": 100.0,
+      "entry_value": 996.9554126198866,
+      "hodl_end": 711.0683209882616,
+      "total_wealth": 831.9686333807667,
+      "absolute_return_pct": -16.549062992250896
+    }
+  }
+}
