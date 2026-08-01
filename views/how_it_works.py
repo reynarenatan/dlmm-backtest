@@ -8,8 +8,14 @@ the engine actually did.
 
 import streamlit as st
 
-from webdata import (chart_path, load_summary, md, md_caption, money,
-                     money_precise, money_round, pct, rate)
+from bin_math import get_bin_id_from_price, get_price_from_bin_id
+from fees import candle_fee, distribute_fee_weighted
+from inventory import position_value, update_inventory
+from pnl import hodl_series, pnl_frame
+from position import user_fee_for_candle
+from strategies import rebalance, run_rebalancing
+from webdata import (chart_path, code_expander, load_summary, md, md_caption,
+                     money, money_precise, money_round, pct, rate)
 
 summary = load_summary()
 params = summary["params"]
@@ -116,6 +122,21 @@ def section_bins() -> None:
        "position earns while price is inside that narrow window, and "
        "earns nothing outside it.")
 
+    md("Bin prices are a geometric sequence, so bin *i* sits at")
+    st.latex(r"P(i) = \left(1 + \frac{s}{10{,}000}\right)^{i}")
+    md(f"where *s* is the bin step in basis points ({params['bin_step']} "
+       "here). Bin 0 is always a price of 1. Going the other way, the bin "
+       "holding a given price is the log inverse, floored because a price "
+       "between two bin prices belongs to the lower bin:")
+    st.latex(r"i = \left\lfloor \frac{\ln P}"
+             r"{\ln\left(1 + \frac{s}{10{,}000}\right)} \right\rfloor")
+    md_caption(
+        "Bin ids are computed on raw on-chain prices, not the dollar "
+        "prices shown here: raw = UI price / 10^(9-6) for SOL/USDC, since "
+        "SOL has 9 decimals and USDC 6. It is the same grid, shifted.")
+    code_expander("Show the code behind this section",
+                  get_price_from_bin_id, get_bin_id_from_price)
+
 
 def section_fee_chain() -> None:
     st.subheader("2. How a fee reaches us")
@@ -174,6 +195,30 @@ def section_fee_chain() -> None:
        f"{params['candles']:,} minutes in the year, and this is what adds "
        "up into the fee totals on the Results page.")
 
+    md("**The same thing as maths.** The candle's fee is steps 1 to 3:")
+    st.latex(r"\text{fee}_{\text{candle}} = V_{\text{market}}"
+             r"\times \text{POOL\_SHARE} \times \text{FEE\_RATE}")
+    md("Step 4 gives each touched bin a weight: the share of the candle's "
+       "price range that fell inside that bin.")
+    st.latex(r"w_b = \frac{\text{overlap}\big(b,\ [\text{low},\ "
+             r"\text{high}]\big)}{\text{high} - \text{low}}")
+    md_caption(
+        "The code divides by the sum of the overlaps rather than by "
+        "high - low. They are the same number: the touched bins are "
+        "exactly those the candle range intersects, so their overlaps "
+        "tile it exactly. Dividing by the sum is what makes the weights "
+        "provably sum to 1, which is asserted on every candle.")
+    md("Step 5 is our share of a bin, which is fixed by the deposit and "
+       "the bin's assumed depth:")
+    st.latex(r"\text{share} = \frac{\text{deposit\_per\_bin}}"
+             r"{\text{BIN\_TVL}}")
+    md("So the fee we earn from one candle is the sum over the bins that "
+       "fall inside our range:")
+    st.latex(r"\text{fee}_{\text{user}} = \sum_{b\,\in\,\text{position}}"
+             r"\text{fee}_{\text{candle}} \cdot w_b \cdot \text{share}")
+    code_expander("Show the code behind this section",
+                  candle_fee, distribute_fee_weighted, user_fee_for_candle)
+
 
 def section_inventory() -> None:
     st.subheader("3. Inventory, and where impermanent loss comes from")
@@ -206,6 +251,29 @@ def section_inventory() -> None:
     md("So a position has two legs pulling against each other: fees "
        "earned, and impermanent loss suffered. The whole engine exists to "
        "measure both on the same price path and see which wins.")
+
+    md("**As maths.** A bin holds USDC below the active bin and SOL above "
+       "it, so the position is worth")
+    st.latex(r"V = \text{USDC held} + \text{SOL held} \times "
+             r"P_{\text{close}}")
+    md("and the baseline is the tokens it opened with, held untouched:")
+    st.latex(r"H = \text{USDC}_0 + \text{SOL}_0 \times P_{\text{close}}")
+    md("Impermanent loss is the difference, which is never positive:")
+    st.latex(r"\text{IL} = V - H")
+    md("Add the fees, take off what rebalancing cost, and that is the "
+       "headline number on the Results page:")
+    st.latex(r"\text{net PnL} = \text{fees} + \text{IL} - \text{costs}")
+    md("Because fees scale linearly with the fee rate while IL and costs "
+       "do not depend on it at all, the rate that would have made net PnL "
+       "exactly zero can be solved for directly rather than searched:")
+    st.latex(r"r_{\text{break-even}} = r \times "
+             r"\frac{\text{costs} - \text{IL}}{\text{fees}}")
+    md_caption(
+        "IL is negative, so costs - IL is positive. This is exact, not an "
+        "approximation - and it is checked by re-running the whole "
+        "backtest at the rate it produces, which nets 0.0000.")
+    code_expander("Show the code behind this section",
+                  update_inventory, position_value, hodl_series, pnl_frame)
 
 
 def section_rebalancing() -> None:
@@ -243,6 +311,22 @@ def section_rebalancing() -> None:
     md("Rebalancing is therefore a straight trade: stay in range and keep "
        "earning fees, and pay for it in realised losses and costs. On this "
        "year it was worth it against holding, and still lost money.")
+
+    md("**As maths.** The new position is built to be worth exactly what "
+       "the old one was, less the cost, so the conversion itself moves no "
+       "value. Solving for the amount per bin *D* given the value *V*:")
+    st.latex(r"V - \text{cost} = D \left( n_{\text{USDC}} + "
+             r"P_{\text{close}} \sum_{b\,>\,\text{active}} "
+             r"\frac{1}{P(b)} \right)")
+    md("and the cost falls only on the tokens that actually change hands:")
+    st.latex(r"\text{cost} = \text{REBALANCE\_COST} \times "
+             r"\lvert \Delta \text{SOL} \rvert \times P_{\text{close}}")
+    md_caption(
+        "The engine asserts value-neutrality at every rebalance: the new "
+        "position marked at the same close equals the old value minus the "
+        "cost, to within floating-point noise.")
+    code_expander("Show the code behind this section",
+                  rebalance, run_rebalancing)
 
 
 def section_provenance() -> None:

@@ -5,6 +5,7 @@ is never run by the web app: `precompute.py` writes results/year_summary.json
 ahead of time and this module hands it out.
 """
 
+import inspect
 import json
 from pathlib import Path
 
@@ -162,3 +163,18 @@ def period_caption(params) -> str:
 def coming_soon(what) -> None:
     """Placeholder body for a page that is not built yet."""
     st.info(f"Coming soon - {what}")
+
+
+def code_expander(label, *functions, expanded=False) -> None:
+    """Show the real source of the functions behind a piece of prose.
+
+    Read out of the live modules with inspect rather than pasted in: a
+    copy would drift from the code the results came from, and a page
+    claiming to show the implementation would then be lying. It also
+    means renaming or editing a function updates this page for free.
+    """
+    with st.expander(label, expanded=expanded):
+        for function in functions:
+            st.caption(f"`{function.__module__}.{function.__qualname__}` "
+                       f"in `{function.__module__}.py`")
+            st.code(inspect.getsource(function), language="python")
