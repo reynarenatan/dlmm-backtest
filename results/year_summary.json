@@ -15,6 +15,11 @@
     "bin_tvl": 13500,
     "rebalance_cost": 0.001
   },
+  "market": {
+    "start_price": 192.72992933365887,
+    "end_price": 73.13760215307789,
+    "change_pct": -62.05176725486147
+  },
   "hodl": {
     "entry_value": 996.9554126198866,
     "end_value": 711.0683209882616,
@@ -35,7 +40,11 @@
       "entry_value": 996.9554126198866,
       "hodl_end": 711.0683209882616,
       "total_wealth": 677.3015416758427,
-      "absolute_return_pct": -32.06300571697881
+      "absolute_return_pct": -32.06300571697881,
+      "initial_range_low": 189.97403984136466,
+      "initial_range_high": 195.28927324688516,
+      "fees_first_90d": 256.24372767267283,
+      "fees_first_90d_pct": 86.13191203945054
     },
     "rebalancing": {
       "total_fees": 831.9506725246006,
@@ -51,7 +60,34 @@
       "entry_value": 996.9554126198866,
       "hodl_end": 711.0683209882616,
       "total_wealth": 831.9686333807667,
-      "absolute_return_pct": -16.549062992250896
+      "absolute_return_pct": -16.549062992250896,
+      "initial_range_low": 189.97403984136466,
+      "initial_range_high": 195.28927324688516,
+      "fees_first_90d": 786.1199279066832,
+      "fees_first_90d_pct": 94.49117043455936
     }
-  }
+  },
+  "cost_sensitivity": [
+    {
+      "cost_rate": 0.0,
+      "net_pnl": 227.8336481598202,
+      "total_costs": 0.0,
+      "total_fees": 938.8469872297662,
+      "rebalances": 2236
+    },
+    {
+      "cost_rate": 0.001,
+      "net_pnl": 120.90031239250516,
+      "total_costs": 107.38073862697053,
+      "total_fees": 831.9506725246006,
+      "rebalances": 2236
+    },
+    {
+      "cost_rate": 0.005,
+      "net_pnl": -144.59698131609036,
+      "total_costs": 375.0345288884064,
+      "total_fees": 566.4711362866832,
+      "rebalances": 2236
+    }
+  ]
 }
