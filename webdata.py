@@ -23,7 +23,8 @@ STRATEGY_LABELS = {
 # adding a field to a page and forgetting to re-run precompute.py fails
 # with a sentence instead of a KeyError three screens down.
 REQUIRED_TOP = ("params", "position_width_pct", "market", "hodl", "pool",
-                "strategies", "cost_sensitivity")
+                "worked_example", "first_rebalance", "strategies",
+                "cost_sensitivity")
 REQUIRED_STRATEGY = ("total_fees", "total_il", "total_costs", "net_pnl",
                      "net_apy", "break_even_fee_rate", "final_value",
                      "rebalances", "time_in_range_pct", "max_drawdown",
@@ -122,6 +123,16 @@ def money(x) -> str:
 def money_round(x) -> str:
     """Money with the cents dropped, for figures big enough not to need them."""
     return f"${x:,.0f}"
+
+
+def money_precise(x) -> str:
+    """Money that keeps its digits below a cent.
+
+    One minute's fee on a $1,000 position is fractions of a cent, and
+    rounding it to $0.02 hides the very thing the worked example is
+    showing.
+    """
+    return f"${x:,.4f}" if abs(x) < 1 else money(x)
 
 
 def signed_money(x) -> str:

@@ -83,6 +83,7 @@ if __name__ == "__main__":
             save(draw(result), f"{stem}_{result['params']['strategy']}")
 
     save(charts.fee_per_bin(total_bin_fees, BIN_STEP), "fee_per_bin")
+    save(charts.bin_grid(df, BIN_STEP), "bin_grid")
 
     if len(results) > 1:
         for stem, draw in COMPARISON:

@@ -1,8 +1,8 @@
 """Charts for a run. Every function takes data and returns a figure.
 
-Nothing here writes a file. write_charts.py saves these to outputs/ for
-the README; a web front end will call the same functions and hand the
-figures somewhere else.
+Nothing here writes a file. run_backtest.py saves these to outputs/ for
+the README and the web app; anything else calls the same functions and
+hands the figures somewhere else.
 
 Colours come from one palette shared by every chart, so a colour means
 the same thing across the whole report. The two that ever share an axis
@@ -13,8 +13,8 @@ checked for colour-blind separation rather than picked by eye.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from bin_math import get_price_from_bin_id
-from candle_bins import raw_to_ui
+from bin_math import get_bin_id_from_price, get_price_from_bin_id
+from candle_bins import raw_to_ui, ui_to_raw
 
 # Chart chrome: text and rules never wear a series colour.
 INK = {
@@ -310,6 +310,46 @@ def fee_per_bin(total_bin_fees, bin_step, top=None):
             ha="left", va="bottom")
     fig.tight_layout()
     return fig
+
+
+def bin_grid(df, bin_step, window_minutes=120, target_bins=7):
+    """The bin grid itself: price crossing a handful of bin boundaries.
+
+    A teaching chart rather than a result. It needs a window calm enough
+    that individual bins are countable, so it picks the stretch whose
+    price span is closest to `target_bins` bins wide -- on a volatile
+    stretch a 0.04% grid is a solid block and shows nothing.
+    """
+    highs = df["high"].rolling(window_minutes).max()
+    lows = df["low"].rolling(window_minutes).min()
+    # Width of each window in bins, which is what "readable" is measured in.
+    span_bins = (np.log(highs / lows) / np.log(1 + bin_step / 10_000))
+    end = int((span_bins - target_bins).abs().idxmin())
+    window = df.iloc[max(0, end - window_minutes + 1):end + 1]
+
+    lo_bin = get_bin_id_from_price(ui_to_raw(window["low"].min()), bin_step)
+    hi_bin = get_bin_id_from_price(ui_to_raw(window["high"].max()), bin_step)
+
+    fig, ax = _axes(figsize=(10, 5))
+    # Alternate shading so a bin reads as a band, not just a pair of lines.
+    for i, b in enumerate(range(lo_bin, hi_bin + 1)):
+        low_edge = raw_to_ui(get_price_from_bin_id(b, bin_step))
+        high_edge = raw_to_ui(get_price_from_bin_id(b + 1, bin_step))
+        ax.axhspan(low_edge, high_edge, color=COLOR["band"],
+                   alpha=0.16 if i % 2 else 0.06, lw=0)
+        ax.axhline(low_edge, color=INK["axis"], lw=0.8)
+    ax.axhline(raw_to_ui(get_price_from_bin_id(hi_bin + 1, bin_step)),
+               color=INK["axis"], lw=0.8)
+
+    ax.plot(window["timestamp"], window["close"], color=COLOR["price"],
+            lw=1.8, label="SOL price")
+    width_pct = ((1 + bin_step / 10_000) - 1) * 100
+    return _finish(
+        fig, ax, "Price moving across the bin grid", "price (USD)",
+        legend=False,
+        subtitle=f"{hi_bin - lo_bin + 1} bins at step {bin_step}, each "
+                 f"{width_pct:.2f}% of price wide "
+                 f"({window_minutes} minutes)")
 
 
 # ======================================================================

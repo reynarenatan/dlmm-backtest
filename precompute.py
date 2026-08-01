@@ -14,9 +14,12 @@ import json
 from pathlib import Path
 
 from backtest import prepare, run
-from bin_math import get_bin_range
-from candle_bins import raw_to_ui
-from fees import accumulate_bin_fees
+from bin_math import get_bin_id_from_price, get_bin_range
+from candle_bins import raw_to_ui, ui_to_raw
+from config import (BIN_STEP, BIN_TVL, FEE_RATE, POOL_SHARE, POSITION_BINS,
+                    USER_DEPOSIT)
+from fees import accumulate_bin_fees, candle_fee
+from position import make_position, user_fee_for_candle
 
 OUT_PATH = Path("results/year_summary.json")
 
@@ -92,16 +95,113 @@ def pool_summary(total_bin_fees, bin_step) -> dict:
     }
 
 
+def worked_example(df, per_candle_bin_fees) -> dict:
+    """One real candle walked through all five steps of the fee chain.
+
+    Chosen rather than invented: of the candles that touch more than one
+    bin while the opening position is in range, this is the one with the
+    median volume, so the numbers are typical rather than flattering.
+    Every figure comes from the same functions the run uses.
+    """
+    center = get_bin_id_from_price(ui_to_raw(df["open"].iloc[0]), BIN_STEP)
+    half = POSITION_BINS // 2
+    position = make_position(USER_DEPOSIT, center - half, center + half)
+    in_position = set(range(position.range_start, position.range_end + 1))
+
+    candidates = [
+        i for i in range(len(df))
+        if df["num_bins"].iloc[i] > 1
+        and set(df["touched_bins"].iloc[i]) <= in_position
+    ]
+    volumes = df["volume_usd"].iloc[candidates]
+    row_index = candidates[int((volumes - volumes.median()).abs()
+                               .reset_index(drop=True).idxmin())]
+
+    row = df.iloc[row_index]
+    bin_fees = per_candle_bin_fees[row_index]
+    fee = sum(bin_fees.values())
+    pool_volume = row["volume_usd"] * POOL_SHARE
+
+    # The split has to conserve the candle's fee, and the fee has to be
+    # the one the fee function produces. Both are asserted rather than
+    # assumed, because this page is where someone checks our arithmetic.
+    assert abs(fee - candle_fee(row["volume_usd"], POOL_SHARE,
+                                FEE_RATE)) < 1e-9
+    user_fee = user_fee_for_candle(position, bin_fees)
+    share = position.deposit_per_bin / BIN_TVL
+
+    bins = []
+    for bin_id, bin_fee in sorted(bin_fees.items()):
+        low_edge, high_edge = get_bin_range(bin_id, BIN_STEP)
+        bins.append({
+            "bin_id": bin_id,
+            "low": raw_to_ui(low_edge),
+            "high": raw_to_ui(high_edge),
+            "share_of_candle_fee_pct": bin_fee / fee * 100,
+            "fee": bin_fee,
+            "user_fee": bin_fee * position.shares.get(bin_id, 0.0),
+        })
+
+    return {
+        "timestamp": str(row["timestamp"]),
+        "low": float(row["low"]),
+        "high": float(row["high"]),
+        "close": float(row["close"]),
+        "market_volume": float(row["volume_usd"]),
+        "pool_share": POOL_SHARE,
+        "pool_volume": float(pool_volume),
+        "fee_rate": FEE_RATE,
+        "candle_fee": float(fee),
+        "bins": bins,
+        "deposit_per_bin": position.deposit_per_bin,
+        "bin_tvl": BIN_TVL,
+        "share_of_bin_pct": share * 100,
+        "user_fee": float(user_fee),
+    }
+
+
+def first_rebalance(result) -> dict:
+    """The first time the range moved, with what it traded and cost."""
+    events, s = result["events"], result["series"]
+    if not events:
+        return {}
+    event = events[0]
+    # Events carry no timestamp; the first candle whose range differs from
+    # the opening one is the candle the first rebalance happened on.
+    moved = s.index[s["range_start"] != s["range_start"].iloc[0]]
+    row = s.loc[moved[0]]
+    old_low, _ = get_bin_range(int(s["range_start"].iloc[0]), BIN_STEP)
+    _, old_high = get_bin_range(int(s["range_end"].iloc[0]), BIN_STEP)
+    new_low, _ = get_bin_range(int(event["new_range"][0]), BIN_STEP)
+    _, new_high = get_bin_range(int(event["new_range"][1]), BIN_STEP)
+
+    return {
+        "timestamp": str(row["timestamp"]),
+        "close": event["close"],
+        "direction": event["direction"],
+        "sol_traded": abs(event["sol_traded"]),
+        "value_traded": abs(event["sol_traded"]) * event["close"],
+        "value_before": event["value_before"],
+        "cost": event["cost"],
+        "old_low": raw_to_ui(old_low),
+        "old_high": raw_to_ui(old_high),
+        "new_low": raw_to_ui(new_low),
+        "new_high": raw_to_ui(new_high),
+    }
+
+
 def build() -> dict:
     df = prepare()
     total_bin_fees, per_candle_bin_fees = accumulate_bin_fees(df)
 
-    strategies, params = {}, None
+    strategies, params, rebalance = {}, None, {}
     for strategy in ("passive", "rebalancing"):
         result = run(df, strategy=strategy,
                      per_candle_bin_fees=per_candle_bin_fees)
         strategies[strategy] = summarise(result)
         params = result["params"]
+        if strategy == "rebalancing":
+            rebalance = first_rebalance(result)
 
     hodl_end = strategies["passive"]["hodl_end"]
     entry_value = strategies["passive"]["entry_value"]
@@ -127,6 +227,8 @@ def build() -> dict:
             "absolute_return_pct": (hodl_end / entry_value - 1) * 100,
         },
         "pool": pool_summary(total_bin_fees, params["bin_step"]),
+        "worked_example": worked_example(df, per_candle_bin_fees),
+        "first_rebalance": rebalance,
         "strategies": strategies,
         "cost_sensitivity": cost_sensitivity(df, per_candle_bin_fees),
     }
