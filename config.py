@@ -8,8 +8,9 @@ BIN_STEP = 4  # basis points; a common step for SOL pools (each bin 0.04% apart)
 POOL_SHARE = 0.08  # this pool captures 8% of total market volume
 FEE_RATE = 0.0004  # 0.04% trading fee
 # Fixed TVL per bin in USD, from the tracked pool rather than a guess: it held
-# about $723k inside a +/-1% band, which at bin step 4 is 50 bins, and the
-# liquidity thins going outward across a 69-bin position.
+# about $723k inside a +/-1% band, which at bin step 4 is 50 bins, so $14.46k
+# per bin there. A 69-bin position reaches past that band into thinner
+# liquidity, and interpolating the density out to 69 bins gives $13.44k.
 BIN_TVL = 13_500
 USER_DEPOSIT = 1_000  # total user deposit in USD 
 POSITION_BINS = 69  # width (in bins) of every position; Meteora's default range

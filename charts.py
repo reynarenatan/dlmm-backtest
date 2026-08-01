@@ -43,6 +43,9 @@ COLOR = {
 
 LINE_W = 1.8
 
+# Points of space above the axes for a title that has a subtitle under it.
+TITLE_PAD = 20
+
 # A year of minute candles is 525,420 points drawn into about 1,500 pixels.
 # Rasterising all of them costs ~15 s per chart and shows nothing extra.
 CHART_MAX_POINTS = 12_000
@@ -84,16 +87,30 @@ def _axes(figsize=(10, 5)):
     return fig, ax
 
 
+def _esc(text):
+    """Escape the dollar signs in a label.
+
+    Matplotlib reads a $...$ pair as maths, so "$996.96 at the start,
+    $0.02 at the end" renders as "996.96atthestart, 0.02 at the end" in
+    italics. Everything drawn here quotes money, so everything is escaped.
+    """
+    return text.replace("$", r"\$")
+
+
 def _finish(fig, ax, title, ylabel, legend=True, subtitle=None):
-    ax.set_title(title, fontsize=11, color=INK["secondary"], loc="left")
+    # A subtitle sits in the gap between axes and title, so the title has
+    # to be padded out of the way or the two are drawn on top of each other.
+    ax.set_title(_esc(title), fontsize=11, color=INK["secondary"], loc="left",
+                 pad=TITLE_PAD if subtitle else 6)
     ax.set_ylabel(ylabel, color=INK["muted"], fontsize=9)
     if subtitle:
-        ax.text(0.0, 1.02, subtitle, transform=ax.transAxes, fontsize=9,
+        ax.text(0.0, 1.01, _esc(subtitle), transform=ax.transAxes, fontsize=9,
                 color=INK["muted"], ha="left", va="bottom")
     if legend:
         leg = ax.legend(loc="best", frameon=False, fontsize=9)
         for text in leg.get_texts():
             text.set_color(INK["secondary"])
+            text.set_text(_esc(text.get_text()))
     fig.autofmt_xdate()
     fig.tight_layout()
     return fig
@@ -259,10 +276,11 @@ def fee_per_bin(total_bin_fees, bin_step, top=None):
     ax.bar(prices, fees, width=width, color=COLOR["fees"], alpha=0.9, lw=0)
     ax.set_xlabel("bin price (USD)", color=INK["muted"], fontsize=9)
     ax.set_title("Fees earned by the pool at each price",
-                 fontsize=11, color=INK["secondary"], loc="left")
+                 fontsize=11, color=INK["secondary"], loc="left",
+                 pad=TITLE_PAD)
     ax.set_ylabel("fees (USD)", color=INK["muted"], fontsize=9)
-    ax.text(0.0, 1.02, f"{len(bins):,} bins touched, "
-                       f"${fees.sum():,.0f} total",
+    ax.text(0.0, 1.01, _esc(f"{len(bins):,} bins touched, "
+                            f"${fees.sum():,.0f} total"),
             transform=ax.transAxes, fontsize=9, color=INK["muted"],
             ha="left", va="bottom")
     fig.tight_layout()
