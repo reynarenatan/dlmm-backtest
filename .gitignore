@@ -11,3 +11,7 @@ data/sol_1m_1y.csv
 
 # local tool settings
 .claude/
+
+# scratch charts from a run at a different bin step, kept locally for
+# comparison and deliberately not part of the repo
+outputs/testbin20/
