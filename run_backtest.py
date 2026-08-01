@@ -28,7 +28,6 @@ PER_RUN = [
     ("price_with_range_band", charts.price_with_range_band),
     ("pnl_decomposition", charts.pnl_decomposition),
     ("position_vs_hodl", charts.position_vs_hodl),
-    ("drawdown", charts.drawdown_curve),
     ("position_value", charts.position_value_over_time),
 ]
 
@@ -36,7 +35,6 @@ PER_RUN = [
 COMPARISON = [
     ("cumulative_fees", charts.cumulative_fees),
     ("net_pnl_comparison", charts.net_pnl_comparison),
-    ("drawdown_comparison", charts.drawdown_comparison),
 ]
 
 

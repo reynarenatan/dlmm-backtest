@@ -31,7 +31,7 @@ REQUIRED_STRATEGY = ("total_fees", "total_il", "total_costs", "net_pnl",
                      "rebalances", "time_in_range_pct", "max_drawdown",
                      "entry_value", "total_wealth", "absolute_return_pct",
                      "initial_range_low", "initial_range_high",
-                     "fees_first_90d_pct")
+                     "fees_first_90d_pct", "phases")
 
 STALE_MESSAGE = (
     "**The precomputed results are out of date.** This page expects fields "

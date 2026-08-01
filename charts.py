@@ -235,26 +235,6 @@ def position_vs_hodl(result):
                    "vs holding the starting tokens", "USD")
 
 
-def drawdown_curve(result):
-    """How far net PnL sat below its own running peak, over time."""
-    m = result["metrics"]
-    # The running peak has to be taken on the full series -- decimating
-    # first would let a dropped peak shrink every drawdown after it.
-    full = result["series"]
-    net = full["net_pnl"]
-    s = _decimate(full.assign(drawdown=net.cummax() - net), "drawdown")
-    fig, ax = _axes(figsize=(10, 4))
-    ax.fill_between(s["timestamp"], 0, -s["drawdown"], color=COLOR["il"],
-                    alpha=0.45, lw=0)
-    ax.plot(s["timestamp"], -s["drawdown"], color=COLOR["il"], lw=1.2)
-    return _finish(
-        fig, ax,
-        f"Drawdown of {result['params']['strategy']} net PnL",
-        "USD below peak", legend=False,
-        subtitle=f"worst ${m['max_drawdown']:,.2f}, "
-                 f"{m['max_drawdown_date'][:10]}")
-
-
 def position_value_over_time(result):
     """Position value across the run, rebalances as a density wash.
 
@@ -385,28 +365,6 @@ def net_pnl_comparison(results):
                    f"Net PnL vs holding on "
                    f"${results[0]['params']['deposit']:,} over {days:.0f} days",
                    "net PnL (USD)")
-
-
-def drawdown_comparison(results):
-    """How far below its own running peak each strategy's net PnL sat.
-
-    One line per strategy rather than one chart each: the point is which
-    strategy gave back more of what it had made, which needs them on the
-    same axis.
-    """
-    fig, ax = _axes(figsize=(10, 4.5))
-    for result in results:
-        # The running peak has to be taken on the full series -- decimating
-        # first would let a dropped peak shrink every drawdown after it.
-        full = result["series"]
-        net = full["net_pnl"]
-        s = _decimate(full.assign(drawdown=net.cummax() - net), "drawdown")
-        name = _label(result)
-        ax.plot(s["timestamp"], -s["drawdown"], color=COLOR[name], lw=LINE_W,
-                label=f"{name} (worst "
-                      f"${result['metrics']['max_drawdown']:,.2f})")
-    return _finish(fig, ax, "Drawdown of net PnL vs holding",
-                   "USD below peak")
 
 
 # ======================================================================

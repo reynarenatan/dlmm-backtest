@@ -63,6 +63,7 @@ def summarise(result) -> dict:
         "initial_range_high": raw_to_ui(high_edge),
         "fees_first_90d": fees_first_90d,
         "fees_first_90d_pct": fees_first_90d / m["total_fees"] * 100,
+        "phases": composition_phases(s, moves=bool(m["rebalances"])),
     }
 
 
@@ -80,6 +81,47 @@ def cost_sensitivity(df, per_candle_bin_fees) -> list:
             "rebalances": m["rebalances"],
         })
     return rows
+
+
+def composition_phases(s, moves) -> dict:
+    """When the position held only USDC, and when it went all SOL for good.
+
+    This is what the shape of the value chart is made of. A position whose
+    bins all sit below the price holds nothing but USDC, so its value
+    cannot move with the price at all; one whose bins all sit above the
+    price is a pure SOL bag and moves with it one for one.
+
+    The USDC-only stretch is not contiguous -- the price dips back into
+    the range and out again -- so it is reported as a count of candles and
+    the value they all share, not as a date range that would imply a
+    single unbroken run.
+
+    That shared value only exists for a position whose range never moves.
+    A rebalancing one is rebuilt at a different size each time, so its
+    USDC-only candles are worth many different amounts and the figure is
+    left out rather than averaged into something meaningless.
+    """
+    usdc_only = s[s["sol_held"] == 0]
+    with_usdc = s.index[s["usdc_held"] > 0]
+    phases = {
+        "usdc_only_candles": int(len(usdc_only)),
+        "usdc_only_value": None,
+        "sol_only_from": None,
+        "sol_only_start_value": None,
+        "sol_only_start_close": None,
+    }
+    if len(usdc_only) and not moves:
+        # A fixed position holding nothing but USDC cannot change value,
+        # whatever the price does. That is the claim the flat stretch on
+        # the chart makes, so it is asserted rather than assumed.
+        assert usdc_only["value"].nunique() == 1
+        phases["usdc_only_value"] = float(usdc_only["value"].iloc[0])
+    if len(with_usdc) and with_usdc[-1] + 1 < len(s):
+        after = s.loc[with_usdc[-1] + 1:]
+        phases["sol_only_from"] = str(after["timestamp"].iloc[0])
+        phases["sol_only_start_value"] = float(after["value"].iloc[0])
+        phases["sol_only_start_close"] = float(after["close"].iloc[0])
+    return phases
 
 
 def pool_summary(total_bin_fees, bin_step) -> dict:

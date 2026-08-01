@@ -132,7 +132,14 @@
       "initial_range_low": 189.97403984136466,
       "initial_range_high": 195.28927324688516,
       "fees_first_90d": 256.24372767267283,
-      "fees_first_90d_pct": 86.13191203945054
+      "fees_first_90d_pct": 86.13191203945054,
+      "phases": {
+        "usdc_only_candles": 80044,
+        "usdc_only_value": 1000.0,
+        "sol_only_from": "2025-10-30 12:24:00",
+        "sol_only_start_value": 983.1380909341159,
+        "sol_only_start_close": 189.3216274078696
+      }
     },
     "rebalancing": {
       "total_fees": 831.9506725246006,
@@ -154,7 +161,14 @@
       "initial_range_low": 189.97403984136466,
       "initial_range_high": 195.28927324688516,
       "fees_first_90d": 786.1199279066832,
-      "fees_first_90d_pct": 94.49117043455936
+      "fees_first_90d_pct": 94.49117043455936,
+      "phases": {
+        "usdc_only_candles": 530,
+        "usdc_only_value": null,
+        "sol_only_from": null,
+        "sol_only_start_value": null,
+        "sol_only_start_close": null
+      }
     }
   },
   "cost_sensitivity": [

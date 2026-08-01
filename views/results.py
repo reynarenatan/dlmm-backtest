@@ -28,12 +28,6 @@ CHARTS = [
         "gave it all back; rebalancing spent most of the year behind and "
         f"finished {money(rebalancing['net_pnl'])} in front."
     )),
-    ("drawdown_comparison.png", "Drawdown of net PnL", (
-        f"How much of its own best result each strategy gave back. Passive "
-        f"fell {money(passive['max_drawdown'])} below its peak and never "
-        f"recovered; rebalancing's worst was "
-        f"{money(rebalancing['max_drawdown'])}, early, and it climbed out."
-    )),
     ("price_with_range_band_passive.png", "Price against the passive range", (
         f"The range was fixed at {money(passive['initial_range_low'])}-"
         f"{money(passive['initial_range_high'])} on the first candle; price "
@@ -70,6 +64,24 @@ CHARTS = [
         f"{money(rebalancing['total_costs'])} of costs; the areas sum to the "
         "net line by construction."
      )),
+    ("position_value_passive.png", "The passive position's value", (
+        f"The flat stretch is the position holding nothing but USDC. Its "
+        f"range was {money(passive['initial_range_low'])}-"
+        f"{money(passive['initial_range_high'])}, so while SOL traded above "
+        f"{money(passive['initial_range_high'])} every bin sat below the "
+        f"price - and a bin below the price holds USDC, which does not "
+        f"move when the price does. Across all "
+        f"{passive['phases']['usdc_only_candles']:,} such candles the "
+        f"position is worth exactly "
+        f"{money(passive['phases']['usdc_only_value'])}, whatever SOL is "
+        f"doing. From {passive['phases']['sol_only_from'][:10]} the price "
+        f"is below the range for good: every bin has spent its USDC buying "
+        f"SOL, so the position is a pure SOL bag from there and falls with "
+        f"it - {money(passive['phases']['sol_only_start_value'])} down to "
+        f"{money(passive['final_value'])} as SOL went "
+        f"{money(passive['phases']['sol_only_start_close'])} to "
+        f"{money(summary['market']['end_price'])}."
+    )),
     ("position_value_rebalancing.png", "The rebalancing position itself", (
         f"Every rebalance realises a little of the loss, so across "
         f"{rebalancing['rebalances']:,} of them the position decays from "
