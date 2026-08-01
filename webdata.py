@@ -19,10 +19,71 @@ STRATEGY_LABELS = {
     "rebalancing": "Rebalancing",
 }
 
+# What a page is entitled to find in the summary. Checked on load so that
+# adding a field to a page and forgetting to re-run precompute.py fails
+# with a sentence instead of a KeyError three screens down.
+REQUIRED_TOP = ("params", "position_width_pct", "market", "hodl", "pool",
+                "strategies", "cost_sensitivity")
+REQUIRED_STRATEGY = ("total_fees", "total_il", "total_costs", "net_pnl",
+                     "net_apy", "break_even_fee_rate", "final_value",
+                     "rebalances", "time_in_range_pct", "max_drawdown",
+                     "entry_value", "total_wealth", "absolute_return_pct",
+                     "initial_range_low", "initial_range_high",
+                     "fees_first_90d_pct")
+
+STALE_MESSAGE = (
+    "**The precomputed results are out of date.** This page expects fields "
+    "that `results/year_summary.json` does not have: {missing}.\n\n"
+    "Run `python precompute.py` and commit `results/year_summary.json`."
+)
+
+
+def _file_stamp(path):
+    """Cache key ingredient: how the file looked when it was read.
+
+    Caching on the path alone was a bug -- the cached value survives a
+    deploy that changed only the data file, so the app serves the previous
+    contents against the new code. Including size and mtime means any
+    change to the file invalidates the cache.
+    """
+    stat = path.stat()
+    return stat.st_size, stat.st_mtime_ns
+
 
 @st.cache_data
+def _read_summary(path_str, stamp) -> dict:
+    """Read the summary. `stamp` is unused, and is the point: it is part of
+    the cache key, so a changed file is a different call. It must not be
+    named with a leading underscore -- Streamlit leaves those out of the
+    key, which is the bug this whole function exists to close.
+    """
+    return json.loads(Path(path_str).read_text(encoding="utf-8"))
+
+
+def missing_fields(summary) -> list:
+    """Which required fields the summary does not have."""
+    missing = [key for key in REQUIRED_TOP if key not in summary]
+    for name, strategy in summary.get("strategies", {}).items():
+        missing += [f"{name}.{key}" for key in REQUIRED_STRATEGY
+                    if key not in strategy]
+    return missing
+
+
 def load_summary(path=SUMMARY_PATH) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """The precomputed results, or a clear stop if they cannot be used."""
+    if not path.exists():
+        st.error(STALE_MESSAGE.format(missing=f"the file `{path.name}` "
+                                              "itself is not there"))
+        st.stop()
+
+    summary = _read_summary(str(path), _file_stamp(path))
+
+    missing = missing_fields(summary)
+    if missing:
+        st.error(STALE_MESSAGE.format(
+            missing="`" + "`, `".join(missing) + "`"))
+        st.stop()
+    return summary
 
 
 def chart_path(name) -> str:
