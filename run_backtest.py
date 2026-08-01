@@ -36,6 +36,7 @@ PER_RUN = [
 COMPARISON = [
     ("cumulative_fees", charts.cumulative_fees),
     ("net_pnl_comparison", charts.net_pnl_comparison),
+    ("drawdown_comparison", charts.drawdown_comparison),
 ]
 
 

@@ -15,6 +15,7 @@
     "bin_tvl": 13500,
     "rebalance_cost": 0.001
   },
+  "position_width_pct": 2.797873546279761,
   "market": {
     "start_price": 192.72992933365887,
     "end_price": 73.13760215307789,
@@ -24,6 +25,13 @@
     "entry_value": 996.9554126198866,
     "end_value": 711.0683209882616,
     "absolute_return_pct": -28.676015798975996
+  },
+  "pool": {
+    "total_fees": 8267273.379839855,
+    "bins_touched": 3602,
+    "busiest_bin_fees": 15906.91298155655,
+    "busiest_bin_low": 126.94679338040754,
+    "busiest_bin_high": 126.99757209775969
   },
   "strategies": {
     "passive": {
@@ -37,6 +45,8 @@
       "final_value": 379.8000447216048,
       "rebalances": 0,
       "time_in_range_pct": 2.5600472003349704,
+      "max_drawdown": 365.5287257127619,
+      "max_drawdown_date": "2026-06-06 04:45:00",
       "entry_value": 996.9554126198866,
       "hodl_end": 711.0683209882616,
       "total_wealth": 677.3015416758427,
@@ -57,6 +67,8 @@
       "final_value": 0.017960856166192633,
       "rebalances": 2236,
       "time_in_range_pct": 100.0,
+      "max_drawdown": 263.8177075220499,
+      "max_drawdown_date": "2025-09-14 03:03:00",
       "entry_value": 996.9554126198866,
       "hodl_end": 711.0683209882616,
       "total_wealth": 831.9686333807667,

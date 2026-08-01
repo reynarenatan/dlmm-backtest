@@ -23,7 +23,8 @@ OUT_PATH = Path("results/year_summary.json")
 # What a results page quotes. Everything else stays in the run.
 HEADLINE = ("total_fees", "total_il", "total_costs", "net_pnl", "net_apy",
             "gross_fee_apy", "break_even_fee_rate", "final_value",
-            "rebalances", "time_in_range_pct")
+            "rebalances", "time_in_range_pct", "max_drawdown",
+            "max_drawdown_date")
 
 # Rebalance costs the sensitivity table reports, as fractions of the value
 # traded. The middle one is the configured REBALANCE_COST.
@@ -78,9 +79,22 @@ def cost_sensitivity(df, per_candle_bin_fees) -> list:
     return rows
 
 
+def pool_summary(total_bin_fees, bin_step) -> dict:
+    """What the whole pool earned, and where along the price it landed."""
+    busiest = max(total_bin_fees, key=total_bin_fees.get)
+    low_edge, high_edge = get_bin_range(busiest, bin_step)
+    return {
+        "total_fees": sum(total_bin_fees.values()),
+        "bins_touched": len(total_bin_fees),
+        "busiest_bin_fees": total_bin_fees[busiest],
+        "busiest_bin_low": raw_to_ui(low_edge),
+        "busiest_bin_high": raw_to_ui(high_edge),
+    }
+
+
 def build() -> dict:
     df = prepare()
-    _, per_candle_bin_fees = accumulate_bin_fees(df)
+    total_bin_fees, per_candle_bin_fees = accumulate_bin_fees(df)
 
     strategies, params = {}, None
     for strategy in ("passive", "rebalancing"):
@@ -94,8 +108,14 @@ def build() -> dict:
     first_close = float(df["close"].iloc[0])
     last_close = float(df["close"].iloc[-1])
 
+    # How much price a position spans, which is why a 69-bin band is a
+    # hairline on a year chart: 69 bins at step 4 is about 2.8%.
+    span = get_bin_range(params["position_bins"], params["bin_step"])[0]
+    width_pct = (span / get_bin_range(0, params["bin_step"])[0] - 1) * 100
+
     return {
         "params": params,
+        "position_width_pct": width_pct,
         "market": {
             "start_price": first_close,
             "end_price": last_close,
@@ -106,6 +126,7 @@ def build() -> dict:
             "end_value": hodl_end,
             "absolute_return_pct": (hodl_end / entry_value - 1) * 100,
         },
+        "pool": pool_summary(total_bin_fees, params["bin_step"]),
         "strategies": strategies,
         "cost_sensitivity": cost_sensitivity(df, per_candle_bin_fees),
     }

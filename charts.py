@@ -136,30 +136,55 @@ def _bin_edges_ui(bins, bin_step):
 # Single-run charts
 # ======================================================================
 
+# Days shown when the range moves. A 69-bin range at step 4 spans about
+# 2.8% of price, so against a full year of a 62% fall it is a hairline
+# sitting on the price line -- true, and showing nothing. Over a month the
+# axis is tight enough for the band and its steps to be visible.
+MOVING_RANGE_WINDOW_DAYS = 30
+
+
 def price_with_range_band(result):
     """Price path with the position's range drawn as a shaded band.
 
     Where the line leaves the band, the position was out of range and
     earning nothing -- the thing a "time in range" percentage states but
     does not show.
+
+    A range that never moves is drawn over the whole run. A range that
+    recentres is drawn over the opening window instead, because a band
+    that tracks the price is invisible at full-year scale.
     """
-    p = result["params"]
-    s = _decimate(result["series"], "close")
+    p, m = result["params"], result["metrics"]
+    full = result["series"]
+    moves = bool(m["rebalances"])
+
+    if moves:
+        window = min(len(full), MOVING_RANGE_WINDOW_DAYS * 1440)
+        full = full.iloc[:window]
+    s = _decimate(full, "close")
     fig, ax = _axes(figsize=(10, 5))
 
     lo = _bin_edges_ui(s["range_start"].values, p["bin_step"])
     hi = _bin_edges_ui(s["range_end"].values + 1, p["bin_step"])
 
-    ax.fill_between(s["timestamp"], lo, hi, color=COLOR["band"], alpha=0.18,
+    ax.fill_between(s["timestamp"], lo, hi, color=COLOR["band"], alpha=0.30,
                     lw=0, label="position range")
     ax.plot(s["timestamp"], s["close"], color=COLOR["price"], lw=1.2,
             label="SOL price")
+
+    if moves:
+        moved = (full["range_start"] != full["range_start"].shift()).sum() - 1
+        subtitle = (f"first {MOVING_RANGE_WINDOW_DAYS} days -- the range "
+                    f"recentres {moved:,} times in this window and "
+                    f"{m['rebalances']:,} times over the year, so the band "
+                    f"tracks the price")
+    else:
+        subtitle = f"in range {m['time_in_range_pct']:.1f}% of candles"
+
     return _finish(
         fig, ax,
         f"Price against the {p['strategy']} position's range",
-        "price (USD)",
-        subtitle=f"in range {result['metrics']['time_in_range_pct']:.1f}% "
-                 f"of candles")
+        "price (USD)", subtitle=subtitle)
 
 
 def pnl_decomposition(result):
@@ -320,6 +345,28 @@ def net_pnl_comparison(results):
                    f"Net PnL vs holding on "
                    f"${results[0]['params']['deposit']:,} over {days:.0f} days",
                    "net PnL (USD)")
+
+
+def drawdown_comparison(results):
+    """How far below its own running peak each strategy's net PnL sat.
+
+    One line per strategy rather than one chart each: the point is which
+    strategy gave back more of what it had made, which needs them on the
+    same axis.
+    """
+    fig, ax = _axes(figsize=(10, 4.5))
+    for result in results:
+        # The running peak has to be taken on the full series -- decimating
+        # first would let a dropped peak shrink every drawdown after it.
+        full = result["series"]
+        net = full["net_pnl"]
+        s = _decimate(full.assign(drawdown=net.cummax() - net), "drawdown")
+        name = _label(result)
+        ax.plot(s["timestamp"], -s["drawdown"], color=COLOR[name], lw=LINE_W,
+                label=f"{name} (worst "
+                      f"${result['metrics']['max_drawdown']:,.2f})")
+    return _finish(fig, ax, "Drawdown of net PnL vs holding",
+                   "USD below peak")
 
 
 # ======================================================================

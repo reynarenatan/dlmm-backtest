@@ -29,8 +29,38 @@ def chart_path(name) -> str:
     return str(CHART_DIR / name)
 
 
+def escape(text) -> str:
+    """Escape the dollar signs in text bound for markdown.
+
+    Streamlit reads a $...$ pair as LaTeX, so "$831.95 against $297.50"
+    renders as italic maths with the dollar signs eaten. Every page here
+    quotes money, so every markdown string goes through this.
+    """
+    return text.replace("$", r"\$")
+
+
+def md(text, **kwargs) -> None:
+    """st.markdown, with the money escaped."""
+    st.markdown(escape(text), **kwargs)
+
+
+def md_caption(text, **kwargs) -> None:
+    """st.caption, with the money escaped."""
+    st.caption(escape(text), **kwargs)
+
+
+def md_info(text, **kwargs) -> None:
+    """st.info, with the money escaped."""
+    st.info(escape(text), **kwargs)
+
+
 def money(x) -> str:
     return f"${x:,.2f}"
+
+
+def money_round(x) -> str:
+    """Money with the cents dropped, for figures big enough not to need them."""
+    return f"${x:,.0f}"
 
 
 def signed_money(x) -> str:
