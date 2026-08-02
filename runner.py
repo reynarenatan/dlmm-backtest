@@ -20,11 +20,13 @@ month is a run over one month's data -- not a year's work thrown away
 afterwards.
 """
 
+import io
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
+import charts
 from backtest import prepare, run
 from config import (BIN_STEP, BIN_TVL, DATA_FILE, FEE_DISTRIBUTION, POOL,
                     POOL_SHARE, POSITION_BINS, REBALANCE_COST, USER_DEPOSIT)
@@ -298,6 +300,86 @@ def run_strategy(config, strategy, df=None, fees=None) -> dict:
                bin_tvl=config["bin_tvl"], deposit=config["deposit"],
                position_bins=config["position_bins"],
                fee_distribution=FEE_DISTRIBUTION)
+
+
+# ----------------------------------------------------------------------
+# A run, reduced to what is worth keeping
+# ----------------------------------------------------------------------
+# This lives here rather than on a page because two pages need it and
+# st.cache_data keys on a function's module and name: a copy per page
+# would be a cache per page, so a configuration run on one would be
+# recomputed by the other. One function, imported by both, is one cache.
+
+# Each per-strategy chart with the question it answers.
+CHARTS = [
+    ("Price against the position's range", charts.price_with_range_band),
+    ("Fees, impermanent loss and net PnL", charts.pnl_decomposition),
+    ("The position against holding", charts.position_vs_hodl),
+    ("What the position was worth", charts.position_value_over_time),
+]
+
+
+def _png(figure) -> bytes:
+    """A figure as bytes, so it can be cached and the figure released."""
+    buffer = io.BytesIO()
+    figure.savefig(buffer, format="png", dpi=150,
+                   facecolor=figure.get_facecolor())
+    charts.plt.close(figure)
+    return buffer.getvalue()
+
+
+@st.cache_data(show_spinner=False, max_entries=24)
+def _run_and_draw(config, strategy, _df=None, _fees=None) -> dict:
+    """One strategy's run, reduced to what is worth keeping.
+
+    Returns params, metrics and the charts as PNG bytes -- about 400 KB.
+    What it deliberately does NOT return is the per-candle series the
+    charts were drawn from: that is 64 MB for a year, and caching a few
+    of them puts the process into swap. The series lives inside this call
+    and is released when it ends.
+
+    Caching bytes rather than figures matters for the same reason: a
+    matplotlib figure is not something to hand between reruns.
+
+    _df and _fees lead with an underscore so Streamlit leaves them out of
+    the cache key. They are derived entirely from `config`, so including
+    them would only make identical runs look different; they are passed
+    in when the caller has already built them for a sibling strategy.
+    """
+    result = run_strategy(config, strategy, df=_df, fees=_fees)
+    return {
+        "params": result["params"],
+        "metrics": result["metrics"],
+        "charts": [(title, _png(draw(result))) for title, draw in CHARTS],
+    }
+
+
+def run_and_draw(config, strategy, _df=None, _fees=None) -> dict:
+    """The cached run, and a note that this pair has now been drawn.
+
+    The note is what lets a page say whether a click will be instant
+    before the click happens. It is a session-level hint, not the truth
+    about the cache -- there is no way to ask Streamlit that -- so it can
+    only be wrong in the safe direction after an eviction: a wait that
+    was quoted as instant, never a wait quoted for something already in
+    hand.
+    """
+    drawn = _run_and_draw(config, strategy, _df=_df, _fees=_fees)
+    mark_drawn(config, strategy)
+    return drawn
+
+
+def drawn_key(config, strategy) -> tuple:
+    return repr(sorted(config.items())), strategy
+
+
+def is_drawn(config, strategy) -> bool:
+    """Whether this pair has been drawn in this session."""
+    return drawn_key(config, strategy) in st.session_state.get("_drawn", set())
+
+
+def mark_drawn(config, strategy) -> None:
+    st.session_state.setdefault("_drawn", set()).add(drawn_key(config, strategy))
 
 
 def save(results) -> str:

@@ -11,15 +11,13 @@ Every markdown string goes through webdata.md/md_caption/md_info, which
 escape the dollar signs -- Streamlit reads a $...$ pair as LaTeX.
 """
 
-import io
-
 import streamlit as st
 
 try:
-    import charts
     import runner
     from config import MAX_BINS
     from results.store import RUNS_PATH
+    from runner import run_and_draw
     from webdata import (STRATEGY_LABELS, md, md_caption, md_info, money,
                          pct, rate, signed_money, signed_pct)
 except ImportError as error:
@@ -31,49 +29,6 @@ except ImportError as error:
 # someone ask for a step no pool offers and read the answer as if it
 # meant something.
 BIN_STEPS = [1, 2, 4, 5, 8, 10, 15, 20, 25, 50, 100]
-
-# Each per-strategy chart with the question it answers.
-CHARTS = [
-    ("Price against the position's range", charts.price_with_range_band),
-    ("Fees, impermanent loss and net PnL", charts.pnl_decomposition),
-    ("The position against holding", charts.position_vs_hodl),
-    ("What the position was worth", charts.position_value_over_time),
-]
-
-
-def png(figure) -> bytes:
-    """A figure as bytes, so it can be cached and the figure released."""
-    buffer = io.BytesIO()
-    figure.savefig(buffer, format="png", dpi=150,
-                   facecolor=figure.get_facecolor())
-    charts.plt.close(figure)
-    return buffer.getvalue()
-
-
-@st.cache_data(show_spinner=False, max_entries=24)
-def run_and_draw(config, strategy, _df=None, _fees=None) -> dict:
-    """One strategy's run, reduced to what is worth keeping.
-
-    Returns params, metrics and the charts as PNG bytes -- about 400 KB.
-    What it deliberately does NOT return is the per-candle series the
-    charts were drawn from: that is 64 MB for a year, and caching a few
-    of them puts the process into swap. The series lives inside this
-    call and is released when it ends.
-
-    Caching bytes rather than figures matters for the same reason: a
-    matplotlib figure is not something to hand between reruns.
-
-    _df and _fees lead with an underscore so Streamlit leaves them out of
-    the cache key. They are derived entirely from `config`, so including
-    them would only make identical runs look different; they are passed
-    in when the page has already built them for a sibling strategy.
-    """
-    result = runner.run_strategy(config, strategy, df=_df, fees=_fees)
-    return {
-        "params": result["params"],
-        "metrics": result["metrics"],
-        "charts": [(title, png(draw(result))) for title, draw in CHARTS],
-    }
 
 
 def execute(config, strategies, progress) -> dict:

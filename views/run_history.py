@@ -17,8 +17,10 @@ import streamlit as st
 try:
     from pandas.api.types import is_numeric_dtype
 
-    from results.store import CONFIG_COLUMNS, RUNS_PATH, load_runs
-    from webdata import md_caption, rate
+    import runner
+    from results.store import (CONFIG_COLUMNS, RESULT_COLUMNS, RUNS_PATH,
+                               load_runs)
+    from webdata import STRATEGY_LABELS, md, md_caption, md_info, rate
 except ImportError as error:
     from stale import guard
 
@@ -103,6 +105,43 @@ def filter_widget(runs, column):
     return runs[column].isin(picked) if picked else None
 
 
+def present(value) -> bool:
+    """Whether a number is there to be shown.
+
+    A stored run keeps its blanks as empty CSV cells, which come back as
+    NaN -- and NaN is truthy, so a plain `if value` would print it.
+    """
+    return value is not None and value == value
+
+
+def format_value(column, value) -> str:
+    """One stored value, formatted the way the table formats it.
+
+    Reuses DISPLAY, so a column given a format there is formatted here
+    for free and a column missing from it still prints.
+    """
+    spec = DISPLAY.get(column, {})
+    if not present(value):
+        return "--"
+    if "format" not in spec:
+        return str(value)
+    if spec.get("as_pct"):
+        value = value * 100
+    # The sign goes outside the format, so a negative reads "-$331.27"
+    # rather than "$-331.27" and agrees with the differences beside it.
+    negative = isinstance(value, (int, float)) and value < 0
+    return ("-" if negative else "") + spec["format"] % abs(value)
+
+
+def format_delta(column, delta) -> str:
+    """A difference, signed, in that column's own units."""
+    if not present(delta):
+        return "--"
+    if delta == 0:
+        return "same"
+    return ("+" if delta > 0 else "-") + format_value(column, abs(delta))
+
+
 def display_frame(runs):
     """The same rows, with stored fractions turned into percentages."""
     shown = runs.copy()
@@ -122,6 +161,186 @@ def column_config() -> dict:
         else:
             config[column] = st.column_config.TextColumn(spec["label"])
     return config
+
+
+# ======================================================================
+# Looking at a stored run
+# ======================================================================
+# The store keeps a run's numbers but not its per-candle series, so the
+# metrics below come free from the CSV and the charts do not: drawing
+# them means a run. That goes through runner.run_and_draw, the same
+# cached call Run it yourself uses, so a configuration already run on
+# either page comes back from the cache instead of being recomputed.
+
+def config_of(row) -> dict:
+    """A stored row's configuration, in the shape runner uses.
+
+    Built through runner.make_config so it comes out identical to the
+    configuration Run it yourself builds for the same settings -- which
+    is exactly what makes a run done there a cache hit here.
+    """
+    return runner.make_config(
+        start_date=row["start_date"], end_date=row["end_date"],
+        bin_step=row["bin_step"], fee_rate=row["fee_rate"],
+        pool_share=row["pool_share"], bin_tvl=row["bin_tvl"],
+        deposit=row["deposit"], position_bins=row["position_bins"],
+        rebalance_cost=row["rebalance_cost"], pool=row["pool"],
+        dataset=row["dataset"])
+
+
+def config_row(row) -> dict:
+    """Every config column of a stored row, normalised for comparison.
+
+    make_config covers the pool and the position; the strategy is a
+    config column too, and the one that most often differs.
+    """
+    return {**config_of(row), "strategy": row["strategy"]}
+
+
+def run_label(row) -> str:
+    return (f"{STRATEGY_LABELS.get(row['strategy'], row['strategy'])}, "
+            f"{row['start_date']} to {row['end_date']}, bin step "
+            f"{int(row['bin_step'])}, {format_value('fee_rate', row['fee_rate'])} "
+            f"fee, {format_value('deposit', row['deposit'])} deposit")
+
+
+def wait_for(pairs) -> float:
+    """Seconds the engine needs for whichever pairs are not already drawn."""
+    total = 0.0
+    for config, strategy in pairs:
+        if runner.is_drawn(config, strategy):
+            continue
+        candles = runner.window(config["start_date"], config["end_date"],
+                                config["dataset"])
+        total += runner.estimate_seconds(len(candles), [strategy])
+    return total
+
+
+def ready(pairs, what) -> bool:
+    """True to draw now; otherwise quote the wait and offer the button."""
+    seconds = wait_for(pairs)
+    if not seconds:
+        return True
+    md(f"**Drawing {what} needs the engine.** A run's per-candle series is "
+       f"not stored -- only its numbers are -- so the charts have to come "
+       f"from a fresh run: **{runner.format_duration(seconds)}**. The "
+       f"numbers above are already the run's own and do not change.")
+    return st.button(f"Run and draw {what}", type="primary",
+                     key=f"draw-{hash(repr(pairs))}")
+
+
+def draw_all(pairs, progress) -> list:
+    """Draw every pair, sharing the candle work where the config allows.
+
+    Two strategies of one configuration -- the commonest comparison, and
+    what one execution writes -- differ only in the walk, so the window
+    is binned and its fees split once for both.
+    """
+    drawn, shared = [], {}
+    for i, (config, strategy) in enumerate(pairs):
+        base = 0.9 * i / len(pairs)
+        if runner.is_drawn(config, strategy):
+            drawn.append(runner.run_and_draw(config, strategy))
+            continue
+        key = repr(sorted(config.items()))
+        if key not in shared:
+            progress.progress(base + 0.05, text="Loading candles")
+            frame = runner.prepared(config)
+            progress.progress(base + 0.15, text="Splitting each candle's fee "
+                                                "across its bins")
+            shared[key] = (frame, runner.fee_split(config, frame))
+        frame, fees = shared[key]
+        progress.progress(base + 0.30,
+                          text=f"Running the {strategy} strategy over "
+                               f"{len(frame):,} candles, and drawing it")
+        drawn.append(runner.run_and_draw(config, strategy,
+                                         _df=frame, _fees=fees))
+    progress.progress(1.0, text="Done")
+    return drawn
+
+
+def metric_cards(row) -> None:
+    """Every stored number for one run, straight from the CSV."""
+    columns = st.columns(5)
+    for column, name in zip(columns * 2, RESULT_COLUMNS):
+        with column:
+            st.metric(label_of(name), format_value(name, row[name]))
+
+
+def show_detail(row) -> None:
+    st.subheader("Run detail")
+    md_caption(run_label(row))
+    metric_cards(row)
+
+    config, strategy = config_of(row), row["strategy"]
+    st.divider()
+    if not ready([(config, strategy)], "this run's charts"):
+        return
+
+    progress = st.progress(0.0, text="Starting")
+    drawn, = draw_all([(config, strategy)], progress)
+    progress.empty()
+    for title, image in drawn["charts"]:
+        st.image(image, caption=title, width="stretch")
+
+
+def config_diff(left, right) -> list:
+    """The config columns whose values differ, and both values."""
+    a, b = config_row(left), config_row(right)
+    return [(column, a[column], b[column]) for column in CONFIG_COLUMNS
+            if a[column] != b[column]]
+
+
+def show_compare(left, right) -> None:
+    st.subheader("Compare two runs")
+    names = ("Run A", "Run B")
+    for name, row in zip(names, (left, right)):
+        md_caption(f"**{name}** - {run_label(row)}")
+
+    # --- what is configured differently --------------------------------
+    st.markdown("**Configuration**")
+    differences = config_diff(left, right)
+    if not differences:
+        md_info("Both runs were configured identically, including the "
+                "strategy. Any difference in the numbers below would mean "
+                "the engine changed between them.")
+    else:
+        rows = [f"| {label_of(column)} | {format_value(column, a)} | "
+                f"{format_value(column, b)} |"
+                for column, a, b in differences]
+        md("| Parameter | Run A | Run B |\n|---|---|---|\n" + "\n".join(rows))
+        md_caption(f"{len(differences)} of {len(CONFIG_COLUMNS)} parameters "
+                   f"differ; the rest are identical and left out.")
+
+    # --- what came out --------------------------------------------------
+    st.markdown("**Results**")
+    rows = []
+    for column in RESULT_COLUMNS:
+        a, b = left[column], right[column]
+        delta = b - a if present(a) and present(b) else None
+        rows.append(f"| {label_of(column)} | {format_value(column, a)} | "
+                    f"{format_value(column, b)} | {format_delta(column, delta)} |")
+    md("| | Run A | Run B | B - A |\n|---|---|---|---|\n" + "\n".join(rows))
+
+    # --- the same chart for both ----------------------------------------
+    pairs = [(config_of(left), left["strategy"]),
+             (config_of(right), right["strategy"])]
+    st.divider()
+    if not ready(pairs, "both runs' charts"):
+        return
+
+    progress = st.progress(0.0, text="Starting")
+    drawn_a, drawn_b = draw_all(pairs, progress)
+    progress.empty()
+
+    st.markdown("**Charts**")
+    for index, (title, _) in enumerate(runner.CHARTS):
+        st.markdown(f"*{title}*")
+        for column, drawn, name in zip(st.columns(2), (drawn_a, drawn_b),
+                                       names):
+            with column:
+                st.image(drawn["charts"][index][1], caption=name,
+                         width="stretch")
 
 
 st.title("Run history")
@@ -149,8 +368,10 @@ with st.sidebar:
 
 shown = runs[reduce(lambda a, b: a & b, masks)] if masks else runs
 
-st.dataframe(display_frame(shown), column_config=column_config(),
-             hide_index=True, width="stretch")
+event = st.dataframe(display_frame(shown), column_config=column_config(),
+                     hide_index=True, width="stretch",
+                     on_select="rerun", selection_mode="multi-row",
+                     key="history_table")
 
 md_caption(
     f"{len(shown):,} of {len(runs):,} rows "
@@ -160,3 +381,20 @@ md_caption(
     f"percentages; net PnL is measured against holding the same starting "
     f"tokens, not against the deposit."
 )
+
+# The selection indexes the frame that was displayed, which is `shown`
+# reformatted -- same rows, same order -- so the positions carry straight
+# back to the stored values.
+picked = event.selection.rows
+selected = [shown.iloc[position] for position in picked]
+
+st.divider()
+if not selected:
+    md_caption("Tick one row to see its charts, or two to compare them.")
+elif len(selected) == 1:
+    show_detail(selected[0])
+elif len(selected) == 2:
+    show_compare(selected[0], selected[1])
+else:
+    st.warning(f"{len(selected)} rows selected. Pick one to see it, or two "
+               f"to compare them.")
