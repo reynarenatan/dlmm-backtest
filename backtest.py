@@ -33,44 +33,68 @@ from strategies import run_rebalancing
 STRATEGIES = ("passive", "rebalancing")
 
 
-def prepare(df=None, path=None):
-    """Load candles and attach touched_bins -- the input every run shares."""
+def prepare(df=None, path=None, bin_step=None):
+    """Load candles and attach touched_bins -- the input every run shares.
+
+    touched_bins is only meaningful for the bin step it was built with, so
+    the step used is recorded on the frame and a frame prepared at a
+    different step is re-binned rather than trusted. Skipping that check
+    would silently run one bin step's position against another's grid.
+    """
+    bin_step = BIN_STEP if bin_step is None else bin_step
     if df is None:
         df = load_candles(path)
-    if "touched_bins" not in df.columns:
-        df = add_bins_to_dataframe(df, BIN_STEP)
+    if df.attrs.get("bin_step") != bin_step:
+        df = add_bins_to_dataframe(df, bin_step)
+        df.attrs["bin_step"] = bin_step
     return df
 
 
 def run(df=None, strategy="rebalancing", path=None, fee_rate=None,
-        cost_rate=None, per_candle_bin_fees=None) -> dict:
+        cost_rate=None, per_candle_bin_fees=None, bin_step=None,
+        pool_share=None, bin_tvl=None, deposit=None, position_bins=None,
+        fee_distribution=None) -> dict:
     """Run one strategy over one dataset and return its result dict.
 
-    fee_rate / cost_rate override the config for this run only; that is
-    what lets the break-even fee rate be checked by re-running rather
-    than by re-deriving the formula that produced it.
+    Every parameter defaults to None, meaning "use the config value", so
+    the command line behaves exactly as it did when none of them existed.
+    Overriding them runs a different pool in the same process without
+    editing config.py: that is what lets the break-even fee rate be
+    checked by re-running, and what lets a web page run a configuration
+    the user chose.
 
     per_candle_bin_fees can be passed in when several runs share a
-    dataset AND a fee rate, to skip repeating the split.
+    dataset AND a fee rate AND a pool, to skip repeating the split. It is
+    the caller's job not to hand over a split built for a different pool;
+    nothing here can tell.
     """
     if strategy not in STRATEGIES:
         raise ValueError(f"unknown strategy: {strategy!r}; "
                          f"expected one of {STRATEGIES}")
     fee_rate = FEE_RATE if fee_rate is None else fee_rate
     cost_rate = REBALANCE_COST if cost_rate is None else cost_rate
+    bin_step = BIN_STEP if bin_step is None else bin_step
+    pool_share = POOL_SHARE if pool_share is None else pool_share
+    bin_tvl = BIN_TVL if bin_tvl is None else bin_tvl
+    deposit = USER_DEPOSIT if deposit is None else deposit
+    position_bins = POSITION_BINS if position_bins is None else position_bins
+    fee_distribution = (FEE_DISTRIBUTION if fee_distribution is None
+                        else fee_distribution)
 
-    df = prepare(df, path)
+    df = prepare(df, path, bin_step)
     if per_candle_bin_fees is None:
-        _, per_candle_bin_fees = accumulate_bin_fees(df, fee_rate=fee_rate)
+        _, per_candle_bin_fees = accumulate_bin_fees(
+            df, fee_distribution=fee_distribution, fee_rate=fee_rate,
+            pool_share=pool_share, bin_step=bin_step)
 
     # Both strategies open the same range on the first candle, so they
     # share a HODL baseline: the same initial tokens, held untouched.
-    center = get_bin_id_from_price(ui_to_raw(df["open"].iloc[0]), BIN_STEP)
-    half = POSITION_BINS // 2
-    pos = make_position(USER_DEPOSIT, center - half, center + half)
+    center = get_bin_id_from_price(ui_to_raw(df["open"].iloc[0]), bin_step)
+    half = position_bins // 2
+    pos = make_position(deposit, center - half, center + half, bin_tvl)
 
     if strategy == "passive":
-        inv = run_inventory(df, pos)
+        inv = run_inventory(df, pos, bin_step)
         frame = pd.DataFrame({
             "value": inv["value"],
             "fee": run_position(df, pos, per_candle_bin_fees),
@@ -83,9 +107,11 @@ def run(df=None, strategy="rebalancing", path=None, fee_rate=None,
         events = []
     else:
         frame, events = run_rebalancing(df, per_candle_bin_fees,
-                                        cost_rate=cost_rate)
+                                        width=position_bins,
+                                        cost_rate=cost_rate, deposit=deposit,
+                                        bin_tvl=bin_tvl, bin_step=bin_step)
 
-    hodl = hodl_series(pos, df["close"])
+    hodl = hodl_series(pos, df["close"], bin_step)
     cum_fees = frame["fee"].cumsum()
     cum_costs = frame["cost"].cumsum()
 
@@ -108,7 +134,7 @@ def run(df=None, strategy="rebalancing", path=None, fee_rate=None,
     # strategies (costs are identically zero for the passive one).
     series["il"] = series["value"] - series["hodl"] + series["cum_costs"]
     series["net_pnl"] = series["cum_fees"] + series["value"] - series["hodl"]
-    series["active_bin"] = [active_bin(c) for c in series["close"]]
+    series["active_bin"] = [active_bin(c, bin_step) for c in series["close"]]
     # A candle is "in range" exactly when the position earned from it.
     # That is what a user means by in range, and it needs no separate
     # definition: the fee IS computed from the bins the candle touched
@@ -123,13 +149,13 @@ def run(df=None, strategy="rebalancing", path=None, fee_rate=None,
         "days": len(df) / 1440,
         "start": str(series["timestamp"].iloc[0]),
         "end": str(series["timestamp"].iloc[-1]),
-        "deposit": USER_DEPOSIT,
-        "position_bins": POSITION_BINS,
-        "bin_step": BIN_STEP,
-        "pool_share": POOL_SHARE,
+        "deposit": deposit,
+        "position_bins": position_bins,
+        "bin_step": bin_step,
+        "pool_share": pool_share,
         "fee_rate": fee_rate,
-        "fee_distribution": FEE_DISTRIBUTION,
-        "bin_tvl": BIN_TVL,
+        "fee_distribution": fee_distribution,
+        "bin_tvl": bin_tvl,
         "rebalance_cost": cost_rate,
     }
     return {

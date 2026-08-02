@@ -12,18 +12,22 @@ Definitions:
 
 import pandas as pd
 
+from config import BIN_STEP
 from inventory import inventory_totals, make_inventory, run_inventory
 from position import Position
 
 
-def hodl_series(position: Position, closes: pd.Series) -> pd.Series:
+def hodl_series(position: Position, closes: pd.Series,
+                bin_step: int = BIN_STEP) -> pd.Series:
     """Value at each close of the t=0 token composition, held untouched."""
-    sol0, usdc0 = inventory_totals(make_inventory(position, closes.iloc[0]))
+    sol0, usdc0 = inventory_totals(
+        make_inventory(position, closes.iloc[0], bin_step))
     return usdc0 + sol0 * closes
 
 
 def pnl_frame(df, position: Position, user_fees: pd.Series,
-              inventory: pd.DataFrame = None) -> pd.DataFrame:
+              inventory: pd.DataFrame = None,
+              bin_step: int = BIN_STEP) -> pd.DataFrame:
     """Per-candle PnL accounting.
 
     df needs a close column; user_fees is the per-candle fee series
@@ -33,8 +37,9 @@ def pnl_frame(df, position: Position, user_fees: pd.Series,
 
     Columns: value, hodl, il, cum_fees, net_pnl.
     """
-    inv = run_inventory(df, position) if inventory is None else inventory
-    hodl = hodl_series(position, df["close"])
+    inv = (run_inventory(df, position, bin_step) if inventory is None
+           else inventory)
+    hodl = hodl_series(position, df["close"], bin_step)
     il = inv["value"] - hodl
     cum_fees = user_fees.cumsum()
     return pd.DataFrame({

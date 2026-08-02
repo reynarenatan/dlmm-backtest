@@ -68,7 +68,8 @@ def distribute_fee_weighted(
     return {bin_id: fee * ov / total for bin_id, ov in overlaps.items()}
 
 
-def accumulate_bin_fees(df, fee_distribution=None, fee_rate=None):
+def accumulate_bin_fees(df, fee_distribution=None, fee_rate=None,
+                        pool_share=None, bin_step=None):
     """Distribute every candle's fee to its touched bins.
 
     Expects a dataframe with volume_usd and touched_bins columns
@@ -79,9 +80,15 @@ def accumulate_bin_fees(df, fee_distribution=None, fee_rate=None):
     use config.FEE_DISTRIBUTION. The parameter exists so both modes can
     be compared in one process without editing the config.
 
-    fee_rate: None (the default) means use config.FEE_RATE. Overriding it
-    lets a caller re-run at a different rate in the same process, which is
-    how the break-even fee rate is verified.
+    fee_rate / pool_share / bin_step: None (the default) means use the
+    config value. Overriding them lets a caller run a different pool in
+    the same process without editing the config, which is how the
+    break-even fee rate is verified and how the web page runs a
+    user-chosen configuration.
+
+    bin_step must be the SAME step df's touched_bins were built with --
+    the weighted split measures a candle against its bins' price ranges,
+    and a mismatch would measure it against the wrong grid.
 
     Returns:
         total_bin_fees: dict bin_id -> total USD fees over the whole df
@@ -94,6 +101,10 @@ def accumulate_bin_fees(df, fee_distribution=None, fee_rate=None):
         raise ValueError(f"unknown fee_distribution: {fee_distribution!r}")
     if fee_rate is None:
         fee_rate = FEE_RATE
+    if pool_share is None:
+        pool_share = POOL_SHARE
+    if bin_step is None:
+        bin_step = BIN_STEP
     weighted = fee_distribution == "weighted"
     # Placeholders keep a single loop; the equal path never reads them,
     # so dataframes without low/high columns still work in equal mode.
@@ -104,10 +115,10 @@ def accumulate_bin_fees(df, fee_distribution=None, fee_rate=None):
     per_candle_bin_fees = []
     for volume, bins, low, high in zip(
             df["volume_usd"], df["touched_bins"], lows, highs):
-        fee = candle_fee(volume, POOL_SHARE, fee_rate)
+        fee = candle_fee(volume, pool_share, fee_rate)
         if weighted:
             split = distribute_fee_weighted(
-                fee, bins, ui_to_raw(low), ui_to_raw(high), BIN_STEP)
+                fee, bins, ui_to_raw(low), ui_to_raw(high), bin_step)
         else:
             split = distribute_fee(fee, bins)
 

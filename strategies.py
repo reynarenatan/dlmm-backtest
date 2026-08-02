@@ -29,22 +29,23 @@ Rebalance model (deliberately simple):
 
 import pandas as pd
 
-from config import POSITION_BINS, REBALANCE_COST, USER_DEPOSIT
+from config import (BIN_STEP, BIN_TVL, POSITION_BINS, REBALANCE_COST,
+                    USER_DEPOSIT)
 from fees import accumulate_bin_fees
 from inventory import (active_bin, bin_price_ui, inventory_totals,
                        make_inventory, position_value, update_inventory)
 from position import make_position, user_fee_for_candle
 
 
-def rebalance(inv: dict, close: float, width: int,
-              cost_rate: float) -> tuple:
+def rebalance(inv: dict, close: float, width: int, cost_rate: float,
+              bin_step: int = BIN_STEP, bin_tvl: float = BIN_TVL) -> tuple:
     """Close the position and reopen it centered on the close's bin.
 
     Returns (new_position, new_inventory, event) where event records
     what was traded: sol_traded > 0 means SOL was bought, < 0 sold.
     """
     value = position_value(inv, close)
-    act = active_bin(close)
+    act = active_bin(close, bin_step)
     half = width // 2
     start, end = act - half, act + half
     bins = range(start, end + 1)
@@ -52,7 +53,7 @@ def rebalance(inv: dict, close: float, width: int,
     # Marked value of the new position per dollar allocated to each bin:
     # a USDC bin is worth its dollar; a SOL bin holds 1/bin_price SOL,
     # worth close/bin_price.
-    sol_per_dollar = sum(1 / bin_price_ui(b) for b in bins if b > act)
+    sol_per_dollar = sum(1 / bin_price_ui(b, bin_step) for b in bins if b > act)
     n_usdc = sum(1 for b in bins if b <= act)
     value_per_dollar = n_usdc + close * sol_per_dollar
 
@@ -62,8 +63,8 @@ def rebalance(inv: dict, close: float, width: int,
     cost = cost_rate * abs(sol_traded) * close
 
     per_bin = (value - cost) / value_per_dollar
-    new_pos = make_position(per_bin * len(bins), start, end)
-    new_inv = make_inventory(new_pos, close)
+    new_pos = make_position(per_bin * len(bins), start, end, bin_tvl)
+    new_inv = make_inventory(new_pos, close, bin_step)
     # Value-neutral apart from the explicit cost: no hidden jump.
     assert abs(position_value(new_inv, close) - (value - cost)) < 1e-9
 
@@ -79,7 +80,8 @@ def rebalance(inv: dict, close: float, width: int,
 
 
 def run_rebalancing(df, per_candle_bin_fees=None, width=POSITION_BINS,
-                    cost_rate=REBALANCE_COST):
+                    cost_rate=REBALANCE_COST, deposit=USER_DEPOSIT,
+                    bin_tvl=BIN_TVL, bin_step=BIN_STEP):
     """Walk the candles managing a rebalancing position.
 
     Starts exactly like the passive scenario (same center, same
@@ -97,20 +99,21 @@ def run_rebalancing(df, per_candle_bin_fees=None, width=POSITION_BINS,
     the walk reads them back.
     """
     if per_candle_bin_fees is None:
-        _, per_candle_bin_fees = accumulate_bin_fees(df)
+        _, per_candle_bin_fees = accumulate_bin_fees(df, bin_step=bin_step)
 
-    center = active_bin(df["open"].iloc[0])
+    center = active_bin(df["open"].iloc[0], bin_step)
     half = width // 2
-    pos = make_position(USER_DEPOSIT, center - half, center + half)
-    inv = make_inventory(pos, df["close"].iloc[0])
+    pos = make_position(deposit, center - half, center + half, bin_tvl)
+    inv = make_inventory(pos, df["close"].iloc[0], bin_step)
 
     rows, events = [], []
     for i, close in enumerate(df["close"]):
         fee = user_fee_for_candle(pos, per_candle_bin_fees[i])
-        inv, _ = update_inventory(inv, close)
+        inv, _ = update_inventory(inv, close, bin_step)
         cost = 0.0
-        if not pos.range_start <= active_bin(close) <= pos.range_end:
-            pos, inv, event = rebalance(inv, close, width, cost_rate)
+        if not pos.range_start <= active_bin(close, bin_step) <= pos.range_end:
+            pos, inv, event = rebalance(inv, close, width, cost_rate,
+                                        bin_step, bin_tvl)
             event["index"] = i
             events.append(event)
             cost = event["cost"]

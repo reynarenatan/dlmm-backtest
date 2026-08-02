@@ -44,37 +44,43 @@ def active_bin(close_ui: float, bin_step: int = BIN_STEP) -> int:
     return get_bin_id_from_price(ui_to_raw(close_ui), bin_step)
 
 
-def make_inventory(position: Position, first_close: float) -> dict:
+def make_inventory(position: Position, first_close: float,
+                   bin_step: int = BIN_STEP) -> dict:
     """Initial holdings: the deposit converts to tokens at the first close.
 
     Returns {bin_id: (side, amount)} where side is "USDC" or "SOL" and
     amount is in that token's units.
+
+    bin_step must be the step the position's bin ids were built with: a
+    bin id only names a price through the step, so a mismatch would
+    convert at the wrong prices.
     """
-    act = active_bin(first_close)
+    act = active_bin(first_close, bin_step)
     inv = {}
     for b in range(position.range_start, position.range_end + 1):
         if b <= act:
             inv[b] = ("USDC", position.deposit_per_bin)
         else:
-            inv[b] = ("SOL", position.deposit_per_bin / bin_price_ui(b))
+            inv[b] = ("SOL", position.deposit_per_bin / bin_price_ui(b, bin_step))
     return inv
 
 
-def update_inventory(inv: dict, close: float) -> tuple[dict, list]:
+def update_inventory(inv: dict, close: float,
+                     bin_step: int = BIN_STEP) -> tuple[dict, list]:
     """Apply one candle's close; return (new inventory, flips).
 
     A bin whose side no longer matches the close converts its whole
     holding at its own price. flips lists
     (bin_id, old_side, old_amount, new_side, new_amount) for inspection.
     """
-    act = active_bin(close)
+    act = active_bin(close, bin_step)
     new_inv, flips = {}, []
     for b, (side, amount) in inv.items():
         want = "USDC" if b <= act else "SOL"
         if want == side:
             new_inv[b] = (side, amount)
         else:
-            p = bin_price_ui(b)
+            p = bin_price_ui(b, bin_step)
             new_amount = amount * p if side == "SOL" else amount / p
             new_inv[b] = (want, new_amount)
             flips.append((b, side, amount, want, new_amount))
@@ -94,13 +100,14 @@ def position_value(inv: dict, close: float) -> float:
     return usdc + sol * close
 
 
-def run_inventory(df, position: Position) -> pd.DataFrame:
+def run_inventory(df, position: Position,
+                  bin_step: int = BIN_STEP) -> pd.DataFrame:
     """Per-candle sol_held / usdc_held / value over a close series."""
     closes = df["close"].tolist()
-    inv = make_inventory(position, closes[0])
+    inv = make_inventory(position, closes[0], bin_step)
     rows = []
     for c in closes:
-        inv, _ = update_inventory(inv, c)  # no-op on the first candle
+        inv, _ = update_inventory(inv, c, bin_step)  # no-op on the first candle
         sol, usdc = inventory_totals(inv)
         rows.append((sol, usdc, usdc + sol * c))
     return pd.DataFrame(
