@@ -34,57 +34,11 @@ from config import (BIN_STEP, BIN_TVL, DATA_FILE, FEE_DISTRIBUTION, POOL,
 from data_io import load_candles
 from fees import accumulate_bin_fees
 from results.store import CONFIG_COLUMNS, load_runs, save_run
+# Re-exported: the preset windows live in their own module so a page can
+# name a window without pulling in charts and matplotlib through here.
+from windows import DEFAULT_PRESET, PRESETS  # noqa: F401
 
 STRATEGIES = ("passive", "rebalancing")
-
-# ----------------------------------------------------------------------
-# Preset windows
-# ----------------------------------------------------------------------
-# Chosen from the dataset rather than picked off a calendar: the peak is
-# the month holding the year's highest close, the crash is the month with
-# the largest fall and the widest range, and the flat market is the most
-# recent month and also the narrowest in the year. Every figure quoted in
-# a description was measured off the candles.
-PRESETS = {
-    "Sept 2025 peak": {
-        "start": date(2025, 9, 1),
-        "end": date(2025, 9, 30),
-        "dates": "1-30 Sep 2025",
-        "help": "The top of the year. SOL climbed from 200.47 to close at "
-                "247.54 on the 18th, the highest daily close in the "
-                "dataset, and touched 253.60 intraday before easing back "
-                "to 208.68. Up 4.1% over the month, with a 32.9% spread "
-                "between its low and its high.",
-    },
-    "Feb 2026 crash": {
-        "start": date(2026, 2, 1),
-        "end": date(2026, 2, 28),
-        "dates": "1-28 Feb 2026",
-        "help": "The worst month in the dataset. SOL opened at 105.24 and "
-                "closed at 84.34, down 19.9%, including a fall from 104.47 "
-                "to 78.23 in the three days to 5 February. It set the "
-                "year's low of 67.51 and swung 57.8% between low and high.",
-    },
-    "Recent flat market": {
-        "start": date(2026, 7, 1),
-        "end": date(2026, 7, 28),
-        "dates": "1-28 Jul 2026",
-        "help": "The most recent month, and the quietest in the dataset: "
-                "SOL started at 73.56 and finished at 73.14, a change of "
-                "-0.6%, inside a 15.6% low-to-high range. The nearest "
-                "thing here to a market going nowhere.",
-    },
-    "Full year": {
-        "start": date(2025, 7, 28),
-        "end": date(2026, 7, 28),
-        "dates": "28 Jul 2025 - 28 Jul 2026",
-        "help": "The whole dataset, and the configuration the Results page "
-                "reports. SOL fell 62.1% over these twelve months, so it "
-                "is one long bear market rather than a neutral sample.",
-    },
-}
-
-DEFAULT_PRESET = "Full year"
 
 # ----------------------------------------------------------------------
 # How long a run takes
