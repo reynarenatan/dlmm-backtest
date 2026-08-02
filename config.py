@@ -16,6 +16,28 @@ FEE_RATE = 0.0004  # 0.04% trading fee
 # per bin there. A 69-bin position reaches past that band into thinner
 # liquidity, and interpolating the density out to 69 bins gives $13.44k.
 BIN_TVL = 13_500
+
+# The same two measurements for every pool tracked in "DLMM Pool Tracking.xlsx"
+# -- three live Meteora SOL/USDC pools, 16 observations each through July 2026.
+# Derived and checked by scripts/pool_params.py; three significant figures
+# because these are averages of noisy observations, not constants.
+#
+# POOL SHARE IS NOT THE SAME ACROSS BIN STEPS, and not nearly: the step 4 pool
+# handles 28x the volume share of the step 20 pool. Trading is concentrated in
+# the tightest grid. TVL per bin barely moves, since a wider bin holds
+# proportionally more even where liquidity is thinner. Anything that varies the
+# bin step has to vary the pool share with it or it is pricing a pool that does
+# not exist.
+#
+# Bin step 4's entries are the settled values above rather than the sheet's
+# current means (9.0% and $13,442). They were fixed before the sheet reached
+# 16 observations, every published result is produced at them, and 8% is the
+# conservative side of the difference.
+TRACKED_POOLS = {
+    4: {"pool_share": POOL_SHARE, "bin_tvl": BIN_TVL},
+    10: {"pool_share": 0.0130, "bin_tvl": 12_300},
+    20: {"pool_share": 0.00315, "bin_tvl": 14_100},
+}
 USER_DEPOSIT = 1_000  # total user deposit in USD 
 POSITION_BINS = 69  # width (in bins) of every position; Meteora's default range
 MAX_BINS = 69  # widest position the engine will build; wider is rejected outright

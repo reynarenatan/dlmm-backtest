@@ -130,13 +130,17 @@ def controls() -> dict:
         help="How far apart neighbouring bins are. Step 4 means each bin "
              "covers 0.04% of price.")
 
-    # Meteora's base fee tracks the bin step, so the default follows it --
-    # but only when the step actually changed, or it would overwrite an
-    # edit on every rerun.
+    # A bin step is not a dial on one pool: it picks a different pool,
+    # with its own fee rate, its own share of market volume and its own
+    # liquidity. So all three follow the step -- but only when the step
+    # actually changed, or they would overwrite an edit on every rerun.
     fee_default = runner.default_fee_rate(bin_step) * 100
-    if st.session_state.get("_fee_follows_step") != bin_step:
+    if st.session_state.get("_pool_follows_step") != bin_step:
         st.session_state["fee_rate_pct"] = fee_default
-        st.session_state["_fee_follows_step"] = bin_step
+        st.session_state["pool_share_pct"] = (
+            runner.default_pool_share(bin_step) * 100)
+        st.session_state["bin_tvl"] = float(runner.default_bin_tvl(bin_step))
+        st.session_state["_pool_follows_step"] = bin_step
 
     fee_rate_pct = st.number_input(
         "Fee rate (%)", min_value=0.0, max_value=5.0, step=0.01,
@@ -152,21 +156,36 @@ def controls() -> dict:
                f"else.")
 
     pool_share_pct = st.number_input(
-        "Pool share (%)", min_value=0.01, max_value=100.0, value=8.0,
-        step=0.5, format="%.2f",
-        help="The share of all SOL market volume this pool handles. 8% is "
-             "the tracked pool's average over 16 observations in July "
-             "2026, and every fee figure scales linearly with it.")
+        "Pool share (%)", min_value=0.001, max_value=100.0, step=0.05,
+        format="%.3f", key="pool_share_pct",
+        help="The share of all SOL market volume this pool handles, and "
+             "the input every fee figure scales linearly with. It is "
+             "measured per pool, and the pools differ enormously: 8% at "
+             "bin step 4, 1.30% at step 10, 0.315% at step 20. Trading "
+             "concentrates in the tightest grid.")
     bin_tvl = st.number_input(
         "TVL per bin ($)", min_value=100.0, max_value=1_000_000.0,
-        value=13_500.0, step=500.0,
+        step=500.0, key="bin_tvl",
         help="Liquidity sitting in each bin. Your share of a bin, and so "
              "your share of its fees, is your deposit per bin divided by "
-             "this. $13,500 is from the tracked pool: about $723,000 "
-             "within 1% of the price, which at bin step 4 is 50 bins or "
-             "$14,460 each, interpolated out to a 69-bin range that "
-             "reaches into thinner liquidity. Every fee figure scales "
-             "inversely with it.")
+             "this, so every fee figure scales inversely with it. "
+             "Measured per pool from the tracked liquidity bands - "
+             "$13,500 at bin step 4, $12,300 at step 10, $14,100 at step "
+             "20. Nearly flat, because a wider bin holds proportionally "
+             "more even where liquidity is thinner.")
+
+    if runner.is_tracked(bin_step):
+        md_caption(f"Pool share and TVL per bin are the tracked bin step "
+                   f"{bin_step} pool's own, averaged over 16 observations "
+                   f"in July 2026.")
+    else:
+        tracked = ", ".join(str(s) for s in sorted(runner.TRACKED_POOLS))
+        md_caption(f"**No pool was tracked at bin step {bin_step}**, so "
+                   f"these fall back to the bin step "
+                   f"{min(runner.TRACKED_POOLS)} pool's figures and are "
+                   f"almost certainly wrong for it - a wider grid handles "
+                   f"far less of the market's volume. Set them yourself, "
+                   f"or pick a measured step ({tracked}).")
 
     st.divider()
     st.caption("The position")

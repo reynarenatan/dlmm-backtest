@@ -29,7 +29,8 @@ import streamlit as st
 import charts
 from backtest import prepare, run
 from config import (BIN_STEP, BIN_TVL, DATA_FILE, FEE_DISTRIBUTION, POOL,
-                    POOL_SHARE, POSITION_BINS, REBALANCE_COST, USER_DEPOSIT)
+                    POOL_SHARE, POSITION_BINS, REBALANCE_COST, TRACKED_POOLS,
+                    USER_DEPOSIT)
 from data_io import load_candles
 from fees import accumulate_bin_fees
 from results.store import CONFIG_COLUMNS, load_runs, save_run
@@ -165,7 +166,7 @@ def dataset_bounds(path=DATA_FILE) -> tuple:
 # ----------------------------------------------------------------------
 
 def make_config(start_date, end_date, bin_step=BIN_STEP, fee_rate=None,
-                pool_share=POOL_SHARE, bin_tvl=BIN_TVL, deposit=USER_DEPOSIT,
+                pool_share=None, bin_tvl=None, deposit=USER_DEPOSIT,
                 position_bins=POSITION_BINS, rebalance_cost=REBALANCE_COST,
                 pool=POOL, dataset=DATA_FILE) -> dict:
     """One run's inputs, in the same shape and units the store uses.
@@ -173,6 +174,11 @@ def make_config(start_date, end_date, bin_step=BIN_STEP, fee_rate=None,
     start_date and end_date are the dates of the first and last candle in
     the window, not the dates that were asked for. That is what the store
     records, so it is what a lookup has to compare against.
+
+    The three pool inputs default to None rather than to a fixed value,
+    meaning "whatever the tracked pool at this bin step charges and
+    holds". Passing 8% at bin step 20 is a run of a pool nobody offers,
+    and defaulting to it would have made that the easy mistake.
     """
     return {
         "pool": pool,
@@ -182,8 +188,10 @@ def make_config(start_date, end_date, bin_step=BIN_STEP, fee_rate=None,
         "bin_step": int(bin_step),
         "fee_rate": default_fee_rate(bin_step) if fee_rate is None
                     else float(fee_rate),
-        "pool_share": float(pool_share),
-        "bin_tvl": float(bin_tvl),
+        "pool_share": default_pool_share(bin_step) if pool_share is None
+                      else float(pool_share),
+        "bin_tvl": default_bin_tvl(bin_step) if bin_tvl is None
+                   else float(bin_tvl),
         "deposit": float(deposit),
         "position_bins": int(position_bins),
         "rebalance_cost": float(rebalance_cost),
@@ -196,9 +204,46 @@ def default_fee_rate(bin_step) -> float:
     Bin step 4 gives 0.04%, which is the rate config.py carries and the
     one every published result was produced at. It is a default, not a
     law -- pools do run other rates, which is why the control stays
-    editable.
+    editable. The tracking spreadsheet backs the rule up: fees over
+    volume comes to 0.0423%, 0.0984% and 0.1963% on the three pools,
+    each just above base because of the variable fee this does not model.
     """
     return bin_step / 10_000
+
+
+# The pool inputs that come with a bin step rather than being independent
+# of it. A bin step is not a dial on one pool: it identifies a different
+# pool, with its own liquidity and its own share of the market's volume.
+# Measured, per pool, in scripts/pool_params.py.
+
+def default_pool_share(bin_step) -> float:
+    """The tracked pool share at a bin step, or the configured one.
+
+    The differences are enormous -- 8% at step 4 against 0.315% at step
+    20, because trading concentrates in the tightest grid -- so this is
+    the single most important thing to move when the bin step moves. Fee
+    income scales linearly with it.
+    """
+    return TRACKED_POOLS.get(int(bin_step), {}).get("pool_share", POOL_SHARE)
+
+
+def default_bin_tvl(bin_step) -> float:
+    """The tracked TVL per bin at a bin step, or the configured one.
+
+    Nearly flat across the three pools, unlike the share: a wider bin
+    holds proportionally more liquidity even where the density is lower.
+    """
+    return TRACKED_POOLS.get(int(bin_step), {}).get("bin_tvl", BIN_TVL)
+
+
+def is_tracked(bin_step) -> bool:
+    """Whether a bin step has a pool behind it or only the fallback.
+
+    Bin steps outside the spreadsheet get the step 4 pool's figures,
+    which are certainly wrong for them. Pages say so rather than
+    presenting a fallback as a measurement.
+    """
+    return int(bin_step) in TRACKED_POOLS
 
 
 # ----------------------------------------------------------------------

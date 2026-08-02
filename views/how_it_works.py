@@ -10,6 +10,7 @@ import streamlit as st
 
 try:
     from bin_math import get_bin_id_from_price, get_price_from_bin_id
+    from config import TRACKED_POOLS
     from fees import candle_fee, distribute_fee_weighted
     from inventory import position_value, update_inventory
     from pnl import hodl_series, pnl_frame
@@ -43,7 +44,8 @@ PROVENANCE = [
      "price."),
     ("Pool share", pct(params["pool_share"] * 100, 0),
      "Measured, averaged over 16 observations in July 2026: the fraction "
-     "of SOL market volume this pool handles."),
+     "of SOL market volume this pool handles. Specific to this pool, not "
+     "to the pair - see the comparison below."),
     ("Fee rate", rate(params["fee_rate"], 2),
      f"Meteora's base fee for bin step {params['bin_step']}."),
     ("TVL per bin", money_round(params["bin_tvl"]),
@@ -345,15 +347,38 @@ def section_provenance() -> None:
        + "\n".join(f"| {name} | **{value}** | {source} |"
                    for name, value, source in PROVENANCE))
     md(f"**This is one pool, not the pool.** Meteora runs SOL/USDC at "
-       f"several bin steps, each with its own base fee and its own "
-       f"liquidity depth; the table describes the bin step "
-       f"{params['bin_step']} pool that was tracked, and every result in "
-       f"this app is a result for that one. None of these values is fixed "
-       f"in the model - the Run it yourself page takes every row above as "
-       f"an input, so the same candles can be run against a different "
-       f"pool. The one that does not travel with the bin step is TVL per "
-       f"bin: it was measured here, and a pool with wider bins holds the "
-       f"same liquidity in fewer of them.")
+       f"several bin steps, and a bin step is not a dial on one pool - it "
+       f"names a different pool, with its own fee rate, its own liquidity "
+       f"and its own share of the market's volume. Three were tracked "
+       f"side by side, and every result in this app is a result for the "
+       f"bin step {params['bin_step']} one:")
+    bins = params["position_bins"]
+    rows = [
+        (f"{step}", rate(step / 10_000, 2), pct(pool["pool_share"] * 100, 3),
+         money_round(pool["bin_tvl"]), pct(step * bins / 100))
+        for step, pool in sorted(TRACKED_POOLS.items())
+    ]
+    md(f"| Bin step | Base fee | Pool share | TVL per bin | A {bins}-bin "
+       f"range spans |\n|---|---|---|---|---|\n"
+       + "\n".join("| " + " | ".join(r) + " |" for r in rows))
+    md("**Pool share is the one that moves**, and it moves by a factor of "
+       "28. The tightest grid takes the overwhelming majority of the "
+       "trading, which is the opposite of what a wider, cheaper-to-hold "
+       "range might suggest. TVL per bin barely changes, because a wider "
+       "bin holds proportionally more liquidity even where the density is "
+       "lower. Fee income scales linearly with the share and inversely "
+       "with the TVL, so running one pool's grid against another's share "
+       "is not a variation on a theme - it prices a pool that does not "
+       "exist.")
+    md_caption(
+        "Averaged over 16 observations of each pool through July 2026, "
+        "and derived by `scripts/pool_params.py` from the tracking "
+        "spreadsheet in the repository. The same sheet's fee income over "
+        "volume routed comes to 0.042%, 0.098% and 0.196% against base "
+        "fees of 0.04%, 0.10% and 0.20% - each a little above base, which "
+        "is Meteora's variable fee showing up in real income and not "
+        "modelled here."
+    )
     md(f"**How the {money_round(params['bin_tvl'])} per bin was "
        "derived**, since it is the least obvious and every fee number "
        "moves with it:")

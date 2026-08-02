@@ -397,12 +397,12 @@ md_caption(
     f"tokens, not against the deposit."
 )
 md_caption(
-    "Comparing two bin steps here is not comparing two pools. TVL per bin "
-    "is an input, so a run at a wider step keeps the same share of a bin "
-    "while earning the higher fee rate that step carries; a real pool at "
-    "that step would hold the same liquidity in fewer, wider bins and the "
-    "share would be smaller. Change one parameter at a time and read the "
-    "rest as the market, not the grid."
+    "A bin step is not a dial on one pool - it names a different pool, "
+    "with its own fee rate, its own share of market volume and its own "
+    "liquidity. The runs saved here carry all three, measured per pool, so "
+    "the rows above compare real pools rather than one pool with its grid "
+    "resized. Pool share is what does the work: 8% at bin step 4 against "
+    "0.315% at step 20, because trading concentrates in the tightest grid."
 )
 
 # The selection indexes the frame that was displayed, which is `shown`

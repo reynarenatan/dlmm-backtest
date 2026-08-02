@@ -16,20 +16,18 @@ those settings on the site -- the page answers from the CSV instead of
 spending half a minute on the engine. Writing the parameters out again
 here would look identical and match nothing the day the two drift.
 
-The fee rate follows the bin step rather than staying at the configured
-0.04%: Meteora's base fee is one basis point per unit of step, so a bin
-step 20 pool charging 0.04% is not a pool anyone can trade. Deposit, pool
-share and TVL per bin stay at their configured values, so the bin step is
-the only thing changing across a row of the sweep.
+A bin step is not a dial on one pool: it names a different pool, so the
+fee rate, the pool share and the TVL per bin all move with it, straight
+out of the tracking spreadsheet by way of config.TRACKED_POOLS. Only the
+deposit and the position width are held fixed.
 
-That last one is worth knowing before reading the wide steps as a
-recommendation. Holding TVL per bin at $13,500 while the bins get five
-times wider means a share of a bin stays the same size while the fee rate
-it earns quintuples, which is why bin step 20 looks spectacular here. A
-real pool at step 20 would spread the same liquidity over fewer, wider
-bins, so the share would be smaller and most of that advantage would go.
-What the sweep is for is variety in the history -- runs across different
-markets and grids -- not a ranking of bin steps.
+The pool share is what makes this matter. The tracked pools handle 8%,
+1.30% and 0.315% of SOL market volume at bin steps 4, 10 and 20 -- a
+factor of 28 across the range, because trading concentrates in the
+tightest grid. An earlier version of this sweep held it at 8% for all
+three and produced a bin step 20 pool earning $19,189 a year on a $1,000
+deposit. Nothing was wrong with the engine; it was pricing a pool that
+does not exist.
 
 Configurations already in the file are skipped, so running this twice
 does not record the same work twice, and a sweep interrupted half way

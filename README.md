@@ -287,6 +287,26 @@ python strategies.py       # rebalancing checks (equivalence, value neutrality, 
   the single biggest lever on all of the results above. TVL is also held
   constant: in reality it moves, and other LPs would crowd into a range
   that is earning well.
+- **The results above are one pool of three.** A bin step is not a dial on
+  a single pool; it names a different pool with its own fee rate, depth and
+  share of market volume. Three SOL/USDC pools were tracked side by side
+  (`DLMM Pool Tracking.xlsx`, 16 observations each in July 2026, derived by
+  `scripts/pool_params.py` into `config.TRACKED_POOLS`):
+
+  | Bin step | Base fee | Pool share | TVL per bin | 69 bins span |
+  |---|---|---|---|---|
+  | 4 | 0.04% | 8% | $13,500 | 2.8% |
+  | 10 | 0.10% | 1.30% | $12,300 | 6.9% |
+  | 20 | 0.20% | 0.315% | $14,100 | 13.8% |
+
+  Pool share is the term that moves — a factor of 28, since trading
+  concentrates in the tightest grid — while TVL per bin barely does,
+  because a wider bin holds proportionally more even where liquidity is
+  thinner. Fee income is linear in the share, so running one pool's grid
+  against another's share prices a pool that does not exist. The
+  spreadsheet's own fee income over volume routed comes to 0.042%, 0.098%
+  and 0.196%, each a little above base: Meteora's variable fee, which is
+  not modelled.
 - Inventory is driven by candle **closes** only: bins at or below the
   active bin hold USDC, bins above hold SOL, and a bin that changes side
   converts its whole holding at its own price. Intra-candle paths are
