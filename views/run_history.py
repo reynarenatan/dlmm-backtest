@@ -383,6 +383,14 @@ md_caption(
     f"percentages; net PnL is measured against holding the same starting "
     f"tokens, not against the deposit."
 )
+md_caption(
+    "Comparing two bin steps here is not comparing two pools. TVL per bin "
+    "is an input, so a run at a wider step keeps the same share of a bin "
+    "while earning the higher fee rate that step carries; a real pool at "
+    "that step would hold the same liquidity in fewer, wider bins and the "
+    "share would be smaller. Change one parameter at a time and read the "
+    "rest as the market, not the grid."
+)
 
 # The selection indexes the frame that was displayed, which is `shown`
 # reformatted -- same rows, same order -- so the positions carry straight

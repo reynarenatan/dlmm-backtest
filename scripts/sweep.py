@@ -22,6 +22,15 @@ step 20 pool charging 0.04% is not a pool anyone can trade. Deposit, pool
 share and TVL per bin stay at their configured values, so the bin step is
 the only thing changing across a row of the sweep.
 
+That last one is worth knowing before reading the wide steps as a
+recommendation. Holding TVL per bin at $13,500 while the bins get five
+times wider means a share of a bin stays the same size while the fee rate
+it earns quintuples, which is why bin step 20 looks spectacular here. A
+real pool at step 20 would spread the same liquidity over fewer, wider
+bins, so the share would be smaller and most of that advantage would go.
+What the sweep is for is variety in the history -- runs across different
+markets and grids -- not a ranking of bin steps.
+
 Configurations already in the file are skipped, so running this twice
 does not record the same work twice, and a sweep interrupted half way
 picks up where it left off.
