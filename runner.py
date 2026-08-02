@@ -251,14 +251,13 @@ def find_saved(config, strategy, runs=None):
 # touch a Streamlit element -- Streamlit records elements created inside
 # one so it can replay them on a cache hit, and a progress bar created
 # outside the function cannot be replayed into. So the phases are called
-# from the page, which owns the progress bar, and only the per-strategy
-# result is cached.
+# from the page, which owns the progress bar.
 #
-# The two shared phases are deliberately NOT cached. Their outputs are a
-# frame carrying a list of bin ids per candle and a list of one dict per
-# candle: at a year's size those are enormous to serialise, and caching
-# the finished results makes them unnecessary anyway -- a rerun answers
-# from the cached result and never asks for them.
+# Nothing in this module is cached, and that is the point: every artefact
+# here is large. The frame carries a list of bin ids per candle, the fee
+# split is one dict per candle, and a result holds a full per-candle
+# series. The page caches what survives a run -- the metrics and the
+# drawn charts -- and lets the rest go.
 
 def prepared(config):
     """The window, binned onto this configuration's bin step."""
@@ -274,39 +273,31 @@ def fee_split(config, df):
     return per_candle_bin_fees
 
 
-@st.cache_data(show_spinner=False, max_entries=12)
-def run_strategy(config, strategy, _df=None, _fees=None) -> dict:
-    """One strategy over one configuration, cached on the pair.
+def run_strategy(config, strategy, df=None, fees=None) -> dict:
+    """One strategy over one configuration; the full result dict.
 
-    _df and _fees lead with an underscore so Streamlit leaves them out of
-    the cache key: they are derived entirely from `config`, so including
-    them would only make identical runs look different. They are passed
-    in when the page has already built them for a sibling strategy, and
-    rebuilt here when this is called cold -- which happens if the cache
-    has dropped an entry the page still expects.
+    Deliberately NOT cached. The result carries a per-candle series, and
+    measured on the year that is 64 MB pickled per strategy -- 127 MB for
+    a pair, against the roughly 1 GB a hosted container gets. Caching a
+    handful of those is enough to put the process into swap, which is
+    exactly what it did: a run that takes 1.3 s took 578 s with two
+    year-long results already cached.
 
-    max_entries caps how many full per-candle series stay in memory; each
-    one is what the charts for that run are drawn from.
+    So the series is treated as what it is, working material. The caller
+    draws its charts, keeps the metrics, and lets it go; what gets cached
+    is that small residue, not this.
+
+    df and fees are passed in when the caller has already built them for
+    a sibling strategy, and rebuilt here when they are not.
     """
-    df = prepared(config) if _df is None else _df
-    fees = fee_split(config, df) if _fees is None else _fees
+    df = prepared(config) if df is None else df
+    fees = fee_split(config, df) if fees is None else fees
     return run(df, strategy=strategy, per_candle_bin_fees=fees,
                fee_rate=config["fee_rate"], cost_rate=config["rebalance_cost"],
                bin_step=config["bin_step"], pool_share=config["pool_share"],
                bin_tvl=config["bin_tvl"], deposit=config["deposit"],
                position_bins=config["position_bins"],
                fee_distribution=FEE_DISTRIBUTION)
-
-
-def run_config(config, strategies) -> dict:
-    """Every requested strategy for one configuration, from the cache.
-
-    Cheap when the run has happened: each strategy is a cache hit. Called
-    cold it does the whole run, without progress -- the page reports
-    progress by calling the phases itself.
-    """
-    return {strategy: run_strategy(config, strategy)
-            for strategy in strategies}
 
 
 def save(results) -> str:

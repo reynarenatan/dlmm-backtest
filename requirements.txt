@@ -1,8 +1,12 @@
-# What the deployed app needs, and nothing else. The pages read precomputed
-# JSON and a saved-runs CSV, so the rest of the engine's dependencies
-# (pyarrow, matplotlib) are not installed on the server -- they are only
-# needed to run precompute.py and run_backtest.py locally.
+# What the deployed app needs, and nothing else.
 streamlit==1.60.0
-# The run history page reads results/runs.csv with pandas. Streamlit already
+# The Run history page reads results/runs.csv with pandas. Streamlit already
 # depends on pandas, but this module imports it directly, so it is declared.
 pandas>=2.0
+# Run it yourself is the one page that runs the engine, so the server needs
+# what a run touches: pyarrow to read the Parquet dataset, and matplotlib
+# and numpy to draw a run's charts. charts.py imports numpy directly rather
+# than relying on it arriving with matplotlib.
+pyarrow>=14.0
+matplotlib>=3.8
+numpy>=1.26
