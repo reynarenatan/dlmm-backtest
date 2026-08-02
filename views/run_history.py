@@ -20,7 +20,8 @@ try:
     import runner
     from results.store import (CONFIG_COLUMNS, RESULT_COLUMNS, RUNS_PATH,
                                load_runs)
-    from webdata import STRATEGY_LABELS, md, md_caption, md_info, rate
+    from webdata import (STRATEGY_LABELS, hosted_note, md, md_caption,
+                         md_info, rate)
 except ImportError as error:
     from stale import guard
 
@@ -358,6 +359,7 @@ md_caption(
     f"to sort; the filters in the sidebar narrow the table by the "
     f"parameters a run used."
 )
+hosted_note()
 
 with st.sidebar:
     st.header("Filters")

@@ -160,6 +160,28 @@ def period_caption(params) -> str:
             f"range at bin step {params['bin_step']}")
 
 
+def hosted_note() -> None:
+    """Why a run saved on the hosted site may not be there tomorrow.
+
+    Streamlit Community Cloud gives the app a container with a disk, and
+    that disk is rebuilt when the app restarts -- a reboot, a redeploy, or
+    the platform putting an idle app to sleep. Appending to results/runs.csv
+    is a real write that a reload will still see, but nothing carries it
+    back into the repository, so a restart takes it with the container.
+    The rows that survive are the ones committed to git.
+
+    Said in both places a run is saved or listed, because a history that
+    quietly forgets is worse than one that says it will.
+    """
+    st.warning(
+        "**Runs saved here do not last.** This site writes them to the "
+        "container's own disk, which is rebuilt every time the app "
+        "restarts: reloading the page keeps them, but a reboot or a new "
+        "deployment does not. The runs already listed were run locally "
+        "and committed to the repository, so those are permanent."
+    )
+
+
 def coming_soon(what) -> None:
     """Placeholder body for a page that is not built yet."""
     st.info(f"Coming soon - {what}")

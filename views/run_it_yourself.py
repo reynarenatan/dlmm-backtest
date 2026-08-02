@@ -18,8 +18,8 @@ try:
     from config import MAX_BINS
     from results.store import RUNS_PATH
     from runner import run_and_draw
-    from webdata import (STRATEGY_LABELS, md, md_caption, md_info, money,
-                         pct, rate, signed_money, signed_pct)
+    from webdata import (STRATEGY_LABELS, hosted_note, md, md_caption,
+                         md_info, money, pct, rate, signed_money, signed_pct)
 except ImportError as error:
     from stale import guard
 
@@ -379,11 +379,9 @@ if already_ran:
     st.success("These numbers and charts came from the engine.")
     show_results({s: from_metrics(r["metrics"]) for s, r in done.items()},
                  {s: r["charts"] for s, r in done.items()})
-    md_caption(
-        f"Saved to `{RUNS_PATH.name}` and listed on the Run history page. "
-        "Runs saved from the hosted app last until it restarts; runs saved "
-        "locally are written to the file."
-    )
+    md_caption(f"Saved to `{RUNS_PATH.name}` and listed on the Run history "
+               f"page.")
+    hosted_note()
 elif have_saved:
     show_results(saved)
     md_caption(
