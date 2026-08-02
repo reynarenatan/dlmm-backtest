@@ -1,5 +1,8 @@
-# What the deployed app needs, and nothing else. app.py reads precomputed
-# JSON, so the engine's dependencies (pandas, pyarrow, matplotlib) are not
-# installed on the server -- they are only needed to run precompute.py
-# locally.
+# What the deployed app needs, and nothing else. The pages read precomputed
+# JSON and a saved-runs CSV, so the rest of the engine's dependencies
+# (pyarrow, matplotlib) are not installed on the server -- they are only
+# needed to run precompute.py and run_backtest.py locally.
 streamlit==1.60.0
+# The run history page reads results/runs.csv with pandas. Streamlit already
+# depends on pandas, but this module imports it directly, so it is declared.
+pandas>=2.0

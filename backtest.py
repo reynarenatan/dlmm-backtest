@@ -20,7 +20,7 @@ import pandas as pd
 
 from bin_math import get_bin_id_from_price
 from candle_bins import BIN_STEP, add_bins_to_dataframe, ui_to_raw
-from config import (BIN_TVL, DATA_FILE, FEE_DISTRIBUTION, FEE_RATE,
+from config import (BIN_TVL, DATA_FILE, FEE_DISTRIBUTION, FEE_RATE, POOL,
                     POOL_SHARE, POSITION_BINS, REBALANCE_COST, USER_DEPOSIT)
 from data_io import load_candles
 from fees import accumulate_bin_fees
@@ -116,6 +116,7 @@ def run(df=None, strategy="rebalancing", path=None, fee_rate=None,
     series["in_range"] = series["fee"] > 0
 
     params = {
+        "pool": POOL,
         "dataset": path or DATA_FILE,
         "strategy": strategy,
         "candles": len(df),

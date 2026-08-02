@@ -197,7 +197,8 @@ enough to make LPing through a 62% drawdown profitable.
 | `metrics.py` | Every reported number, computed from a run's series (no formatting) |
 | `report.py` | Formats a run for a terminal, ending in a plain-language paragraph (no computing) |
 | `charts.py` | Every chart, each function taking a run and returning a figure (no file writing) |
-| `run_backtest.py` | Runs both strategies, prints the reports, writes the charts to `outputs/` |
+| `run_backtest.py` | Runs both strategies, prints the reports, saves the run, writes the charts to `outputs/` |
+| `results/store.py` | Appends every run to `results/runs.csv`, one row per strategy, sharing an execution id |
 | `test_bin_math.py` | Tests for the bin math |
 | `data/sol_1m_1y.parquet` | The exact dataset the results above were produced from (committed for reproducibility) |
 

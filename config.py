@@ -1,5 +1,9 @@
 """All tunable parameters for the DLMM backtester in one place."""
 
+# Which pool is being modelled. Nothing computes from this -- it is recorded
+# with every saved run so a history of runs can say what they were runs OF.
+POOL = "SOL/USDC"
+
 # Which candle file every module loads. Both datasets are committed, so this
 # works on a fresh clone either way; see the README for their ranges.
 DATA_FILE = "data/sol_1m_1y.parquet"

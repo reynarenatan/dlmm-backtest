@@ -8,14 +8,20 @@ the engine actually did.
 
 import streamlit as st
 
-from bin_math import get_bin_id_from_price, get_price_from_bin_id
-from fees import candle_fee, distribute_fee_weighted
-from inventory import position_value, update_inventory
-from pnl import hodl_series, pnl_frame
-from position import user_fee_for_candle
-from strategies import rebalance, run_rebalancing
-from webdata import (chart_path, code_expander, load_summary, md, md_caption,
-                     money, money_precise, money_round, pct, rate)
+try:
+    from bin_math import get_bin_id_from_price, get_price_from_bin_id
+    from fees import candle_fee, distribute_fee_weighted
+    from inventory import position_value, update_inventory
+    from pnl import hodl_series, pnl_frame
+    from position import user_fee_for_candle
+    from strategies import rebalance, run_rebalancing
+    from webdata import (chart_path, code_expander, load_summary, md,
+                         md_caption, money, money_precise, money_round, pct,
+                         rate)
+except ImportError as error:
+    from stale import guard
+
+    guard(error)
 
 summary = load_summary()
 params = summary["params"]

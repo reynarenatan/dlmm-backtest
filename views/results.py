@@ -7,9 +7,14 @@ LaTeX and would eat the money.
 
 import streamlit as st
 
-from webdata import (STRATEGY_LABELS, chart_path, load_summary, md,
-                     md_caption, md_info, money, money_round, pct,
-                     period_caption, rate, signed_money, signed_pct)
+try:
+    from webdata import (STRATEGY_LABELS, chart_path, load_summary, md,
+                         md_caption, md_info, money, money_round, pct,
+                         period_caption, rate, signed_money, signed_pct)
+except ImportError as error:
+    from stale import guard
+
+    guard(error)
 
 summary = load_summary()
 params = summary["params"]

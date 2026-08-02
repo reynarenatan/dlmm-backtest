@@ -19,6 +19,7 @@ from backtest import prepare, run
 from config import BIN_STEP
 from fees import accumulate_bin_fees
 from report import print_report
+from results.store import RUNS_PATH, save_run
 
 OUTPUT_DIR = "outputs"
 DPI = 150
@@ -71,6 +72,13 @@ if __name__ == "__main__":
                      per_candle_bin_fees=per_candle_bin_fees)
         print_report(result)
         results.append(result)
+
+    # Recorded before the charts, so a failure while drawing cannot lose
+    # the run. The sensitivity sweep below is deliberately not saved: it is
+    # a what-if around this execution, not an execution of its own.
+    execution_id = save_run(results)
+    print(f"saved execution {execution_id} "
+          f"({len(results)} rows) -> {RUNS_PATH}")
 
     if "rebalancing" in strategies:
         cost_sensitivity(df, per_candle_bin_fees)
