@@ -10,6 +10,7 @@ missing from it still renders, so a new column is visible immediately and
 just looks plainer until someone gives it a label.
 """
 
+import re
 from functools import partial, reduce
 
 import streamlit as st
@@ -70,7 +71,22 @@ DISPLAY = {
     "time_in_range": {"label": "Time in range", "format": "%.1f%%"},
     "rebalance_count": {"label": "Rebalances", "format": "%d"},
     "max_drawdown": {"label": "Max drawdown", "format": "$%.2f"},
+    "entry_value": {"label": "At entry", "format": "$%.2f"},
+    "final_value": {"label": "Position at the end", "format": "$%.2f"},
+    "hodl_final_value": {"label": "If simply held", "format": "$%.2f"},
+    # Derived on this page rather than stored, from the columns above.
+    "total_at_end": {"label": "Total at the end", "format": "$%.2f"},
+    "return_on_deposit": {"label": "Return on deposit", "format": "%.1f%%",
+                          "signed": True},
 }
+
+# What the deposit became, as opposed to how it fared against holding.
+# These are shown as their own block rather than as more metric cards,
+# because they are the rows where "and what would holding have done"
+# actually has an answer.
+WEALTH_COLUMNS = ("entry_value", "final_value", "hodl_final_value")
+CARD_COLUMNS = tuple(column for column in RESULT_COLUMNS
+                     if column not in WEALTH_COLUMNS)
 
 
 def label_of(column) -> str:
@@ -122,6 +138,22 @@ def present(value) -> bool:
     return value is not None and value == value
 
 
+def with_separators(text) -> str:
+    """Thousands separators in an already printf-formatted number.
+
+    The formats in DISPLAY are printf because st.column_config wants them
+    that way, and printf has no grouping flag in Python. The table widget
+    groups on its own; a markdown table does not, so "$1014.64" would sit
+    in a column beside "$984.06" and read as the smaller number.
+
+    Only the integer part is touched: the lookbehind keeps it off the
+    digits after a decimal point, so a fee rate of 0.2163% is not turned
+    into 0.2,163%.
+    """
+    return re.sub(r"(?<![\d.])\d{4,}(?!\d)",
+                  lambda match: f"{int(match.group()):,}", text)
+
+
 def format_value(column, value) -> str:
     """One stored value, formatted the way the table formats it.
 
@@ -138,16 +170,8 @@ def format_value(column, value) -> str:
     # The sign goes outside the format, so a negative reads "-$331.27"
     # rather than "$-331.27" and agrees with the differences beside it.
     negative = isinstance(value, (int, float)) and value < 0
-    return ("-" if negative else "") + spec["format"] % abs(value)
-
-
-def format_delta(column, delta) -> str:
-    """A difference, signed, in that column's own units."""
-    if not present(delta):
-        return "--"
-    if delta == 0:
-        return "same"
-    return ("+" if delta > 0 else "-") + format_value(column, abs(delta))
+    sign = "-" if negative else ("+" if spec.get("signed") else "")
+    return sign + with_separators(spec["format"] % abs(value))
 
 
 def display_frame(runs):
@@ -268,23 +292,135 @@ def draw_all(pairs, progress) -> list:
 
 
 def metric_cards(row) -> None:
-    """Every stored number for one run, straight from the CSV.
+    """How one run fared, straight from the CSV.
 
     The tooltip comes from DISPLAY like the label and the format do, so a
     column explained there is explained here without this knowing which
-    columns need explaining.
+    columns need explaining. What the money itself did is left to
+    results_table, where holding can be shown beside it.
     """
     columns = st.columns(5)
-    for column, name in zip(columns * 2, RESULT_COLUMNS):
+    for column, name in zip(columns * 2, CARD_COLUMNS):
         with column:
             st.metric(label_of(name), format_value(name, row[name]),
                       help=DISPLAY.get(name, {}).get("help"))
+
+
+# ======================================================================
+# What the money did, against what holding would have done
+# ======================================================================
+# Holding earns no fees and has no impermanent loss -- it is the baseline
+# those are measured against -- so it is blank on the rows about the
+# strategy and carries a value only on the rows about the money. That is
+# the same shape the Results page uses, and the same question: a position
+# can beat holding and still finish below what went in.
+
+def holding_of(row) -> dict:
+    """What the same deposit, simply held, did over this run's window.
+
+    Free from the CSV. The hold baseline is the tokens the position
+    opened with, held untouched, so it shares the run's entry value and
+    collects nothing along the way.
+    """
+    entry, end = row["entry_value"], row["hodl_final_value"]
+    return {"entry_value": entry, "final_value": end, "total_at_end": end,
+            "return_on_deposit": (end / entry - 1) * 100
+                                 if present(entry) and entry else None}
+
+
+def wealth_of(row) -> dict:
+    """What one run's deposit became.
+
+    Fees are withdrawn as they are earned rather than compounded back in,
+    so the total is fees plus whatever the position is still worth.
+    """
+    total = (row["fees"] + row["final_value"]
+             if present(row["fees"]) and present(row["final_value"]) else None)
+    entry = row["entry_value"]
+    return {"entry_value": entry, "final_value": row["final_value"],
+            "total_at_end": total,
+            "return_on_deposit": (total / entry - 1) * 100
+                                 if present(total) and present(entry) and entry
+                                 else None}
+
+
+WEALTH_ROWS = ("entry_value", "final_value", "total_at_end",
+               "return_on_deposit")
+
+
+def shares_a_baseline(rows) -> bool:
+    """Whether these runs can be read against one holding column.
+
+    Decided from the stored values rather than from the configuration:
+    two runs share a baseline when they opened the same tokens and those
+    tokens ended up worth the same. Two strategies of one execution
+    always do. A different window does not, and neither does a different
+    bin step, whose wider bins buy in at different prices -- entry is
+    $996.96 at step 4 against $984.06 at step 20 on the same day.
+    """
+    holds = [holding_of(row) for row in rows]
+    return all(
+        present(a) and present(b) and abs(a - b) < 0.005
+        for key in ("entry_value", "final_value")
+        for a, b in [(holds[0][key], hold[key]) for hold in holds[1:]]
+    ) if len(rows) > 1 else True
+
+
+def results_table(rows, names, performance=True) -> None:
+    """What one or two runs did, and what holding did on the same window.
+
+    `performance` adds the rows about the strategy above the rows about
+    the money. The detail view leaves them out because it has already
+    shown them as cards; the compare view wants everything in one table,
+    where two runs can be read down the same column.
+    """
+    holds = [holding_of(row) for row in rows]
+    shared = shares_a_baseline(rows)
+    hold_names = (["Just holding"] if shared
+                  else [f"Holding ({name.split()[-1]})" for name in names])
+    hold_columns = holds[:1] if shared else holds
+
+    header = ("| | " + " | ".join(list(names) + hold_names) + " |\n"
+              + "|---|" + "---|" * (len(names) + len(hold_names)) + "\n")
+
+    lines = []
+    for column in CARD_COLUMNS if performance else ():
+        cells = [format_value(column, row[column]) for row in rows]
+        lines.append(f"| {label_of(column)} | " + " | ".join(
+            cells + ["-"] * len(hold_columns)) + " |")
+
+    wealth = [wealth_of(row) for row in rows]
+    for column in WEALTH_ROWS:
+        cells = [format_value(column, w[column]) for w in wealth]
+        cells += [format_value(column, h[column]) for h in hold_columns]
+        lines.append(f"| **{label_of(column)}** | **"
+                     + "** | **".join(cells) + "** |")
+
+    md(header + "\n".join(lines))
+    md_caption(
+        "Holding is the same tokens the position opened with, kept "
+        "untouched: it earns no fees and has no impermanent loss, which "
+        "is why the rows above it are blank for it. Fees are withdrawn as "
+        "they are earned rather than compounded back in, so the total is "
+        "fees plus whatever the position is still worth, and the return "
+        "is measured against what the deposit was marked at on the first "
+        "candle."
+    )
+    if not shared:
+        md_caption(
+            "The two runs do not share a baseline - a different window, "
+            "or a different bin step buying into different bins - so "
+            "holding is shown for each."
+        )
 
 
 def show_detail(row) -> None:
     st.subheader("Run detail")
     md_caption(run_label(row))
     metric_cards(row)
+
+    st.markdown("**What the deposit did**")
+    results_table([row], ["This run"], performance=False)
 
     config, strategy = config_of(row), row["strategy"]
     st.divider()
@@ -328,13 +464,7 @@ def show_compare(left, right) -> None:
 
     # --- what came out --------------------------------------------------
     st.markdown("**Results**")
-    rows = []
-    for column in RESULT_COLUMNS:
-        a, b = left[column], right[column]
-        delta = b - a if present(a) and present(b) else None
-        rows.append(f"| {label_of(column)} | {format_value(column, a)} | "
-                    f"{format_value(column, b)} | {format_delta(column, delta)} |")
-    md("| | Run A | Run B | B - A |\n|---|---|---|---|\n" + "\n".join(rows))
+    results_table([left, right], names)
 
     # --- the same chart for both ----------------------------------------
     pairs = [(config_of(left), left["strategy"]),

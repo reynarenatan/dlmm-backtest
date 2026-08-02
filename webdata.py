@@ -117,6 +117,19 @@ def md_info(text, **kwargs) -> None:
     st.info(escape(text), **kwargs)
 
 
+def hint(text) -> str:
+    """Tooltip text, with the money escaped.
+
+    A `help=` string is markdown too, and Streamlit reads a $...$ pair in
+    it as LaTeX exactly as it does in the body -- "$13,500 at step 4,
+    $12,300 at step 10" renders as italic maths with the dollar signs
+    eaten. md/md_caption/md_info cannot cover this because help is an
+    argument rather than a call, so any tooltip quoting money has to be
+    wrapped by hand: help=hint("...").
+    """
+    return escape(text)
+
+
 def money(x) -> str:
     return f"${x:,.2f}"
 

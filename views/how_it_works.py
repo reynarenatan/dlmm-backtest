@@ -16,7 +16,7 @@ try:
     from pnl import hodl_series, pnl_frame
     from position import user_fee_for_candle
     from strategies import rebalance, run_rebalancing
-    from webdata import (chart_path, code_expander, load_summary, md,
+    from webdata import (chart_path, code_expander, escape, load_summary, md,
                          md_caption, money, money_precise, money_round, pct,
                          rate)
 except ImportError as error:
@@ -104,6 +104,25 @@ LIMITS = [
 ]
 
 
+def where(*pairs) -> None:
+    """Name each symbol in the formula above, one line each.
+
+    The symbol is set as inline maths so it looks identical to the same
+    symbol in the formula, which is the whole point: a key that renders
+    `V` in a different face from the `V` above it is one more thing to
+    match up.
+
+    Only the symbol goes in raw, because inline LaTeX is delimited by the
+    dollar signs that webdata.md escapes. The meaning beside it is
+    escaped as everything else on these pages is -- several of these
+    lines quote money, and an unescaped "$13,500" would pair up with the
+    dollar of the NEXT symbol and swallow the line between them. Which it
+    did, before this was split in two.
+    """
+    st.markdown("\n".join(f"- ${symbol}$ &nbsp; {escape(meaning)}"
+                          for symbol, meaning in pairs))
+
+
 def section_bins() -> None:
     st.subheader("1. What a bin is")
     md("A normal exchange lets you quote any price you like. A DLMM does "
@@ -133,12 +152,17 @@ def section_bins() -> None:
 
     md("Bin prices are a geometric sequence, so bin *i* sits at")
     st.latex(r"P(i) = \left(1 + \frac{s}{10{,}000}\right)^{i}")
-    md(f"where *s* is the bin step in basis points ({params['bin_step']} "
-       "here). Bin 0 is always a price of 1. Going the other way, the bin "
-       "holding a given price is the log inverse, floored because a price "
-       "between two bin prices belongs to the lower bin:")
+    where(("P(i)", "the price at the bottom of bin *i*"),
+          ("i", "the bin's id, a whole number that can be negative"),
+          ("s", f"the bin step in basis points ({params['bin_step']} here), "
+                f"so each bin is {BIN_WIDTH_PCT:.2f}% wider than the last"))
+    md("Bin 0 is always a price of 1. Going the other way, the bin holding "
+       "a given price is the log inverse, floored because a price between "
+       "two bin prices belongs to the lower bin:")
     st.latex(r"i = \left\lfloor \frac{\ln P}"
              r"{\ln\left(1 + \frac{s}{10{,}000}\right)} \right\rfloor")
+    where(("P", "any price you want the bin for"),
+          (r"\lfloor\ \rfloor", "round down to the whole bin below"))
     md_caption(
         "Bin ids are computed on raw on-chain prices, not the dollar "
         "prices shown here: raw = UI price / 10^(9-6) for SOL/USDC, since "
@@ -207,10 +231,26 @@ def section_fee_chain() -> None:
     md("**The same thing as maths.** The candle's fee is steps 1 to 3:")
     st.latex(r"\text{fee}_{\text{candle}} = V_{\text{market}}"
              r"\times \text{POOL\_SHARE} \times \text{FEE\_RATE}")
+    where((r"\text{fee}_{\text{candle}}",
+           "every fee the pool collected in that one minute"),
+          (r"V_{\text{market}}",
+           "SOL traded across the whole market that minute, in dollars"),
+          (r"\text{POOL\_SHARE}",
+           f"the fraction of it this pool handled "
+           f"({pct(params['pool_share'] * 100, 0)})"),
+          (r"\text{FEE\_RATE}",
+           f"what the pool charges on what it routes "
+           f"({rate(params['fee_rate'], 2)})"))
     md("Step 4 gives each touched bin a weight: the share of the candle's "
        "price range that fell inside that bin.")
     st.latex(r"w_b = \frac{\text{overlap}\big(b,\ [\text{low},\ "
              r"\text{high}]\big)}{\text{high} - \text{low}}")
+    where(("w_b", "bin *b*'s share of that candle's fee, between 0 and 1"),
+          ("b", "one of the bins the candle's price passed through"),
+          (r"\text{low},\ \text{high}",
+           "the lowest and highest price in the minute"),
+          (r"\text{overlap}",
+           "how much of the price range fell inside bin *b*"))
     md_caption(
         "The code divides by the sum of the overlaps rather than by "
         "high - low. They are the same number: the touched bins are "
@@ -221,10 +261,23 @@ def section_fee_chain() -> None:
        "the bin's assumed depth:")
     st.latex(r"\text{share} = \frac{\text{deposit\_per\_bin}}"
              r"{\text{BIN\_TVL}}")
+    where((r"\text{share}",
+           f"the fraction of one bin that is ours "
+           f"({pct(example['share_of_bin_pct'], 3)})"),
+          (r"\text{deposit\_per\_bin}",
+           f"the deposit spread evenly over the range "
+           f"({money(example['deposit_per_bin'])} each)"),
+          (r"\text{BIN\_TVL}",
+           f"everyone's liquidity in one bin "
+           f"({money_round(example['bin_tvl'])})"))
     md("So the fee we earn from one candle is the sum over the bins that "
        "fall inside our range:")
     st.latex(r"\text{fee}_{\text{user}} = \sum_{b\,\in\,\text{position}}"
              r"\text{fee}_{\text{candle}} \cdot w_b \cdot \text{share}")
+    where((r"\text{fee}_{\text{user}}", "what this minute paid us"),
+          (r"b \in \text{position}",
+           "only the touched bins inside our range - the rest earn for "
+           "somebody else"))
     code_expander("Show the code behind this section",
                   candle_fee, distribute_fee_weighted, user_fee_for_candle)
 
@@ -265,18 +318,37 @@ def section_inventory() -> None:
        "it, so the position is worth")
     st.latex(r"V = \text{USDC held} + \text{SOL held} \times "
              r"P_{\text{close}}")
+    where(("V", "what the position is worth at this candle"),
+          (r"P_{\text{close}}", "the price SOL closed the minute at"))
     md("and the baseline is the tokens it opened with, held untouched:")
     st.latex(r"H = \text{USDC}_0 + \text{SOL}_0 \times P_{\text{close}}")
+    where(("H", "what those same starting tokens would be worth now"),
+          (r"\text{USDC}_0,\ \text{SOL}_0",
+           "what the position held on its first candle, then never "
+           "traded again"))
     md("Impermanent loss is the difference, which is never positive:")
     st.latex(r"\text{IL} = V - H")
+    where((r"\text{IL}",
+           "how far behind holding the position has fallen, in dollars"))
     md("Add the fees, take off what rebalancing cost, and that is the "
        "headline number on the Results page:")
     st.latex(r"\text{net PnL} = \text{fees} + \text{IL} - \text{costs}")
+    where((r"\text{net PnL}",
+           "what liquidity provision earned against holding - not a "
+           "return on the deposit"),
+          (r"\text{fees}", "everything collected since the first candle"),
+          (r"\text{costs}", "what the rebalances charged, zero if the "
+                            "range never moved"))
     md("Because fees scale linearly with the fee rate while IL and costs "
        "do not depend on it at all, the rate that would have made net PnL "
        "exactly zero can be solved for directly rather than searched:")
     st.latex(r"r_{\text{break-even}} = r \times "
              r"\frac{\text{costs} - \text{IL}}{\text{fees}}")
+    where((r"r_{\text{break-even}}",
+           "the fee rate at which this run would have come out exactly "
+           "level with holding"),
+          ("r", f"the fee rate the run actually used "
+                f"({rate(params['fee_rate'], 2)})"))
     md_caption(
         "IL is negative, so costs - IL is positive. This is exact, not an "
         "approximation - and it is checked by re-running the whole "
@@ -327,9 +399,21 @@ def section_rebalancing() -> None:
     st.latex(r"V - \text{cost} = D \left( n_{\text{USDC}} + "
              r"P_{\text{close}} \sum_{b\,>\,\text{active}} "
              r"\frac{1}{P(b)} \right)")
+    where(("V", "what the old position was worth the moment before"),
+          ("D", "the dollars to put in each bin of the new range - the "
+                "one unknown, solved for here"),
+          (r"n_{\text{USDC}}",
+           "how many of the new bins sit below the price, holding cash"),
+          (r"b > \text{active}",
+           "the bins above the price, which hold SOL bought at *P(b)*"))
     md("and the cost falls only on the tokens that actually change hands:")
     st.latex(r"\text{cost} = \text{REBALANCE\_COST} \times "
              r"\lvert \Delta \text{SOL} \rvert \times P_{\text{close}}")
+    where((r"\text{REBALANCE\_COST}",
+           f"the charge on what is traded "
+           f"({pct(params['rebalance_cost'] * 100, 1)})"),
+          (r"\lvert \Delta \text{SOL} \rvert",
+           "how much SOL had to be bought or sold to rebuild the range"))
     md_caption(
         "The engine asserts value-neutrality at every rebalance: the new "
         "position marked at the same close equals the old value minus the "
@@ -350,8 +434,9 @@ def section_provenance() -> None:
        f"several bin steps, and a bin step is not a dial on one pool - it "
        f"names a different pool, with its own fee rate, its own liquidity "
        f"and its own share of the market's volume. Three were tracked "
-       f"side by side, and every result in this app is a result for the "
-       f"bin step {params['bin_step']} one:")
+       f"side by side. The Results page and every worked example here are "
+       f"the bin step {params['bin_step']} pool; the other two are on Run "
+       f"it yourself and in the saved runs on Run history:")
     bins = params["position_bins"]
     rows = [
         (f"{step}", rate(step / 10_000, 2), pct(pool["pool_share"] * 100, 3),

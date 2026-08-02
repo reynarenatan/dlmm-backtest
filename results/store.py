@@ -42,7 +42,13 @@ CONFIG_COLUMNS = ("pool", "dataset", "start_date", "end_date", "bin_step",
 # engine, so the page converts on the way out instead.
 RESULT_COLUMNS = ("fees", "il", "costs", "net_pnl", "net_apy",
                   "gross_fee_apy", "break_even_fee_rate", "time_in_range",
-                  "rebalance_count", "max_drawdown")
+                  "rebalance_count", "max_drawdown",
+                  # What the deposit became, as opposed to how it fared
+                  # against holding. Stored because a run's per-candle
+                  # series is not: without these a saved run can say it
+                  # beat holding but not what either was worth, which is
+                  # the question anyone asks next.
+                  "entry_value", "final_value", "hodl_final_value")
 
 COLUMNS = IDENTITY_COLUMNS + CONFIG_COLUMNS + RESULT_COLUMNS
 
@@ -79,6 +85,12 @@ def _row(result, execution_id, timestamp) -> dict:
         "time_in_range": m["time_in_range_pct"],
         "rebalance_count": m["rebalances"],
         "max_drawdown": m["max_drawdown"],
+        # entry_value is what the position was marked at on the first
+        # candle -- a little under the deposit -- and is the entry for the
+        # hold baseline too, since both start from the same tokens.
+        "entry_value": m["entry_value"],
+        "final_value": m["final_value"],
+        "hodl_final_value": m["hodl_final_value"],
     }
     # COLUMNS is what the file is written and read with, so it has to be
     # exactly what this builds; a column added to one and not the other

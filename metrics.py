@@ -85,6 +85,19 @@ def compute_metrics(series, events, params) -> dict:
     end_usdc = float(series["usdc_held"].iloc[-1])
     end_value = float(series["value"].iloc[-1])
 
+    # --- what the money did, as opposed to how it did against holding -----
+    # net_pnl answers the second question. These answer the first, and on a
+    # falling market they point opposite ways: a position can beat holding
+    # and still end below what went in.
+    #
+    # entry_value is the deposit as the position is actually marked on the
+    # first candle, which is a little under the deposit itself -- the bins
+    # above the price hold tokens bought at their own, higher price. It is
+    # also the hold baseline's entry, since both start from the same
+    # tokens, so it is the denominator both returns are measured from.
+    entry_value = float(series["value"].iloc[0])
+    hodl_final_value = float(series["hodl"].iloc[-1])
+
     m = {
         # money
         "total_fees": total_fees,
@@ -115,6 +128,9 @@ def compute_metrics(series, events, params) -> dict:
         "best_day_pnl": _f(by_day_pnl.max()),
         "worst_day": str(by_day_pnl.idxmin()),
         "worst_day_pnl": _f(by_day_pnl.min()),
+        # what the deposit became
+        "entry_value": entry_value,
+        "hodl_final_value": hodl_final_value,
         # final composition
         "final_value": end_value,
         "final_sol": end_sol,

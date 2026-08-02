@@ -18,7 +18,7 @@ try:
     from config import MAX_BINS
     from results.store import RUNS_PATH
     from runner import run_and_draw
-    from webdata import (STRATEGY_LABELS, hosted_note, md, md_caption,
+    from webdata import (STRATEGY_LABELS, hint, hosted_note, md, md_caption,
                          md_info, money, pct, rate, signed_money, signed_pct)
 except ImportError as error:
     from stale import guard
@@ -166,13 +166,14 @@ def controls() -> dict:
     bin_tvl = st.number_input(
         "TVL per bin ($)", min_value=100.0, max_value=1_000_000.0,
         step=500.0, key="bin_tvl",
-        help="Liquidity sitting in each bin. Your share of a bin, and so "
-             "your share of its fees, is your deposit per bin divided by "
-             "this, so every fee figure scales inversely with it. "
-             "Measured per pool from the tracked liquidity bands - "
-             "$13,500 at bin step 4, $12,300 at step 10, $14,100 at step "
-             "20. Nearly flat, because a wider bin holds proportionally "
-             "more even where liquidity is thinner.")
+        help=hint("How much liquidity sits in one bin. Your share of a "
+                  "bin is your deposit per bin divided by this, and your "
+                  "share of its fees is the same fraction, so every fee "
+                  "figure scales inversely with it. Each tracked pool has "
+                  "its own: $13,500 a bin at bin step 4, $12,300 at step "
+                  "10 and $14,100 at step 20. They stay close because a "
+                  "wider bin covers more of the price line, so it holds "
+                  "proportionally more even where liquidity is thinner."))
 
     if runner.is_tracked(bin_step):
         md_caption(f"Pool share and TVL per bin are the tracked bin step "
@@ -258,11 +259,11 @@ def metric_cards(source) -> None:
               if present(source.get("return_on_deposit")) else "--",
               help="What the money did rather than how it did against "
                    "holding: fees collected plus whatever the position is "
-                   "still worth, against the deposit, annualised like the "
-                   "APY above. A position can beat holding and still be "
-                   "negative here. Shown only for a run just executed - "
-                   "a saved row keeps a run's numbers, not the value its "
-                   "position ended on.")
+                   "still worth, measured against what the deposit was "
+                   "marked at when the position opened. Over the run's "
+                   "own period, not annualised - the APY above is the "
+                   "annualised view. A position can beat holding and "
+                   "still be negative here.")
     st.metric("Break-even fee rate",
               rate(source["break_even_fee_rate"])
               if present(source["break_even_fee_rate"]) else "--",
@@ -275,18 +276,30 @@ def metric_cards(source) -> None:
     st.metric("Rebalances", f"{int(source['rebalance_count']):,}")
 
 
-def from_metrics(params, metrics) -> dict:
-    """A fresh run's metrics under the names the store and cards use.
+def return_on_deposit(fees, final_value, entry_value) -> float:
+    """What the money did over the run, from either source.
 
-    return_on_deposit is computed here rather than read: it needs the
-    position's final value, which a run has and a stored row does not, so
-    it is the one card a saved run cannot fill in. Annualised the same way
-    the engine annualises net APY, so the two sit side by side honestly.
+    Fees are withdrawn rather than compounded, so the wealth a run ended
+    with is its fees plus whatever the position is still worth. Measured
+    against what the deposit was marked at when the position opened,
+    which is what the Results page and the history measure against too.
+
+    Deliberately NOT annualised, unlike the APY beside it. The same
+    figure appears on Results and on Run history, and it has to be the
+    same number in all three places: annualising here made a year-long
+    run read -16.6% against their -16.5%, which is a discrepancy nobody
+    can explain from the page. The APY card is where the annualised view
+    already lives.
     """
-    wealth = metrics["total_fees"] + metrics["final_value"]
+    return ((fees + final_value) / entry_value - 1) * 100
+
+
+def from_metrics(params, metrics) -> dict:
+    """A fresh run's metrics under the names the store and cards use."""
     return {
-        "return_on_deposit": ((wealth / params["deposit"] - 1) * 100
-                              / params["days"] * 365),
+        "return_on_deposit": return_on_deposit(
+            metrics["total_fees"], metrics["final_value"],
+            metrics["entry_value"]),
         "fees": metrics["total_fees"],
         "il": metrics["total_il"],
         "costs": metrics["total_costs"],
@@ -296,6 +309,17 @@ def from_metrics(params, metrics) -> dict:
         "time_in_range": metrics["time_in_range_pct"],
         "rebalance_count": metrics["rebalances"],
     }
+
+
+def from_stored(row) -> dict:
+    """A stored row, with the one number it does not carry outright.
+
+    The store keeps the fees and both end values, so what the money did
+    is arithmetic on the row rather than a run -- which is why a saved
+    configuration can fill every card without touching the engine.
+    """
+    return {**row, "return_on_deposit": return_on_deposit(
+        row["fees"], row["final_value"], row["entry_value"])}
 
 
 def verdict(sources) -> None:
@@ -440,7 +464,7 @@ if already_ran:
                f"page.")
     hosted_note()
 elif have_saved:
-    show_results(saved)
+    show_results({s: from_stored(row) for s, row in saved.items()})
     md_caption(
         "Read from the saved run, not recomputed. Press the button above "
         "to run the engine and draw the charts."
