@@ -38,8 +38,9 @@ BIN_WIDTH_PCT = params["bin_step"] / 100  # 4 basis points = 0.04%
 # measured from live Meteora pools, not chosen to make the result work.
 PROVENANCE = [
     ("Bin step", f"{params['bin_step']}",
-     "The pool being modelled. It fixes how wide one bin is: "
-     f"{BIN_WIDTH_PCT:.2f}% of price."),
+     "The pool being modelled, and one of several steps Meteora runs for "
+     f"this pair. It fixes how wide one bin is: {BIN_WIDTH_PCT:.2f}% of "
+     "price."),
     ("Pool share", pct(params["pool_share"] * 100, 0),
      "Measured, averaged over 16 observations in July 2026: the fraction "
      "of SOL market volume this pool handles."),
@@ -343,6 +344,16 @@ def section_provenance() -> None:
     md("| Parameter | Value | Source |\n|---|---|---|\n"
        + "\n".join(f"| {name} | **{value}** | {source} |"
                    for name, value, source in PROVENANCE))
+    md(f"**This is one pool, not the pool.** Meteora runs SOL/USDC at "
+       f"several bin steps, each with its own base fee and its own "
+       f"liquidity depth; the table describes the bin step "
+       f"{params['bin_step']} pool that was tracked, and every result in "
+       f"this app is a result for that one. None of these values is fixed "
+       f"in the model - the Run it yourself page takes every row above as "
+       f"an input, so the same candles can be run against a different "
+       f"pool. The one that does not travel with the bin step is TVL per "
+       f"bin: it was measured here, and a pool with wider bins holds the "
+       f"same liquidity in fewer of them.")
     md(f"**How the {money_round(params['bin_tvl'])} per bin was "
        "derived**, since it is the least obvious and every fee number "
        "moves with it:")

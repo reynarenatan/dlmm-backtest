@@ -98,7 +98,12 @@ CHARTS = [
 
 
 def metric_cards(s) -> None:
-    """The six headline numbers for one strategy."""
+    """The headline numbers for one strategy.
+
+    Two returns, deliberately, because they answer different questions and
+    on this year they point opposite ways: net APY is a comparison against
+    holding, and return on deposit is what the money actually did.
+    """
     st.metric("Fees earned", money(s["total_fees"]),
               help="Trading fees the position collected over the year.")
     st.metric("Impermanent loss", signed_money(s["total_il"]),
@@ -114,9 +119,17 @@ def metric_cards(s) -> None:
                    "against holding, not a return on the deposit.")
     st.metric("Net APY", pct(s["net_apy"] * 100),
               help="The same comparison, annualised.")
+    st.metric("Return on deposit", signed_pct(s["absolute_return_pct"]),
+              help="What the money did, rather than how it did against "
+                   "holding: fees collected plus whatever the position is "
+                   "still worth, measured against what went in. A strategy "
+                   "can beat holding and still be negative here, and on "
+                   "this year both are.")
     st.metric("Break-even fee rate", rate(s["break_even_fee_rate"]),
-              help="The fee rate at which fees would exactly have covered "
-                   "impermanent loss and costs on this price path.")
+              help="The fee rate that would have made net PnL exactly zero "
+                   "on this price path - the rate at which fees just cover "
+                   "impermanent loss and costs. A pool charging more than "
+                   "this beat holding; a pool charging less did not.")
 
 
 def wealth_table() -> None:
@@ -145,6 +158,18 @@ def wealth_table() -> None:
     md_caption(
         "Fees are withdrawn as they are earned rather than compounded back "
         "in, so the total is fees plus whatever the position is still worth."
+    )
+    md_caption(
+        f"The deposit is {money(params['deposit'])}, but the position is "
+        f"marked at {money(hodl['entry_value'])} the moment it opens. "
+        f"Spreading it across {params['position_bins']} bins puts about half "
+        f"of it in bins above the current price, and those bins hold SOL "
+        f"bought at their own price - each one a little above the market - "
+        f"so valued at the market price they come to slightly less than the "
+        f"cash that went into them. Nothing has been spent: the gap closes "
+        f"if price rises back through those bins, and holding is measured "
+        f"from the same {money(hodl['entry_value'])}, so it cancels out of "
+        f"every comparison on this page."
     )
 
 

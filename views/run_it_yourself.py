@@ -141,7 +141,11 @@ def controls() -> dict:
     fee_rate_pct = st.number_input(
         "Fee rate (%)", min_value=0.0, max_value=5.0, step=0.01,
         format="%.4f", key="fee_rate_pct",
-        help="The pool's trading fee, charged on the volume it routes.")
+        help="The pool's trading fee, charged on the volume it routes. "
+             "Meteora's base fee is one basis point per unit of bin step, "
+             "so 0.04% at step 4, 0.10% at step 10 and 0.20% at step 20. "
+             "Real pools add a variable fee on top in volatile stretches, "
+             "which this does not model.")
     md_caption(f"Pre-filled with {fee_default:.4f}%, Meteora's base fee "
                f"for bin step {bin_step} - one basis point per unit of "
                f"step. Edit it to model a pool that charges something "
@@ -150,23 +154,31 @@ def controls() -> dict:
     pool_share_pct = st.number_input(
         "Pool share (%)", min_value=0.01, max_value=100.0, value=8.0,
         step=0.5, format="%.2f",
-        help="The share of all SOL market volume this pool handles. The "
-             "published results use 8%, measured over 16 observations in "
-             "July 2026.")
+        help="The share of all SOL market volume this pool handles. 8% is "
+             "the tracked pool's average over 16 observations in July "
+             "2026, and every fee figure scales linearly with it.")
     bin_tvl = st.number_input(
         "TVL per bin ($)", min_value=100.0, max_value=1_000_000.0,
         value=13_500.0, step=500.0,
         help="Liquidity sitting in each bin. Your share of a bin, and so "
              "your share of its fees, is your deposit per bin divided by "
-             "this.")
+             "this. $13,500 is from the tracked pool: about $723,000 "
+             "within 1% of the price, which at bin step 4 is 50 bins or "
+             "$14,460 each, interpolated out to a 69-bin range that "
+             "reaches into thinner liquidity. Every fee figure scales "
+             "inversely with it.")
 
     st.divider()
     st.caption("The position")
     deposit = st.number_input(
         "Deposit ($)", min_value=100.0, max_value=10_000_000.0,
         value=1_000.0, step=100.0,
-        help="Every fee figure scales linearly with this; impermanent "
-             "loss does too.")
+        help="Every fee figure scales linearly with this; impermanent loss "
+             "does too. A position is marked a little under its deposit "
+             "the moment it opens - the bins above the price hold SOL "
+             "bought at their own, higher price - and holding is measured "
+             "from that same figure, so the gap cancels out of the "
+             "comparison.")
     position_bins = st.slider(
         "Position width (bins)", min_value=1, max_value=MAX_BINS, value=69,
         step=2,
@@ -216,21 +228,46 @@ def metric_cards(source) -> None:
     st.metric("Impermanent loss", signed_money(source["il"]))
     st.metric("Rebalancing costs",
               money(source["costs"]) if source["costs"] else "--")
-    st.metric("Net vs holding", signed_money(source["net_pnl"]))
-    st.metric("Net APY", pct(source["net_apy"] * 100))
+    st.metric("Net vs holding", signed_money(source["net_pnl"]),
+              help="Fees minus impermanent loss and costs. A comparison "
+                   "against holding the same starting tokens, not a return "
+                   "on the deposit.")
+    st.metric("Net APY", pct(source["net_apy"] * 100),
+              help="The same comparison against holding, annualised.")
+    st.metric("Return on deposit",
+              signed_pct(source["return_on_deposit"])
+              if present(source.get("return_on_deposit")) else "--",
+              help="What the money did rather than how it did against "
+                   "holding: fees collected plus whatever the position is "
+                   "still worth, against the deposit, annualised like the "
+                   "APY above. A position can beat holding and still be "
+                   "negative here. Shown only for a run just executed - "
+                   "a saved row keeps a run's numbers, not the value its "
+                   "position ended on.")
     st.metric("Break-even fee rate",
               rate(source["break_even_fee_rate"])
               if present(source["break_even_fee_rate"]) else "--",
-              help="The fee rate at which fees would exactly have covered "
-                   "impermanent loss and costs. Undefined when the "
-                   "position never earned a fee.")
+              help="The fee rate that would have made net PnL exactly zero "
+                   "on this price path - the rate at which fees just cover "
+                   "impermanent loss and costs. A pool charging more than "
+                   "this beat holding; a pool charging less did not. "
+                   "Undefined when the position never earned a fee.")
     st.metric("Time in range", pct(source["time_in_range"]))
     st.metric("Rebalances", f"{int(source['rebalance_count']):,}")
 
 
-def from_metrics(metrics) -> dict:
-    """A fresh run's metrics under the names the store and cards use."""
+def from_metrics(params, metrics) -> dict:
+    """A fresh run's metrics under the names the store and cards use.
+
+    return_on_deposit is computed here rather than read: it needs the
+    position's final value, which a run has and a stored row does not, so
+    it is the one card a saved run cannot fill in. Annualised the same way
+    the engine annualises net APY, so the two sit side by side honestly.
+    """
+    wealth = metrics["total_fees"] + metrics["final_value"]
     return {
+        "return_on_deposit": ((wealth / params["deposit"] - 1) * 100
+                              / params["days"] * 365),
         "fees": metrics["total_fees"],
         "il": metrics["total_il"],
         "costs": metrics["total_costs"],
@@ -377,7 +414,8 @@ st.divider()
 if already_ran:
     done = cached_runs(config, strategies)
     st.success("These numbers and charts came from the engine.")
-    show_results({s: from_metrics(r["metrics"]) for s, r in done.items()},
+    show_results({s: from_metrics(r["params"], r["metrics"])
+                  for s, r in done.items()},
                  {s: r["charts"] for s, r in done.items()})
     md_caption(f"Saved to `{RUNS_PATH.name}` and listed on the Run history "
                f"page.")

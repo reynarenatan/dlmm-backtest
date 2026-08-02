@@ -59,7 +59,14 @@ DISPLAY = {
     "gross_fee_apy": {"label": "Gross fee APY", "format": "%.1f%%",
                       "as_pct": True},
     "break_even_fee_rate": {"label": "Break-even fee rate",
-                            "format": "%.4f%%", "as_pct": True},
+                            "format": "%.4f%%", "as_pct": True,
+                            "help": "The fee rate that would have made net "
+                                    "PnL exactly zero on this price path - "
+                                    "the rate at which fees just cover "
+                                    "impermanent loss and costs. Compare it "
+                                    "against the fee rate the run assumed: "
+                                    "above it the run beat holding, below "
+                                    "it it did not."},
     "time_in_range": {"label": "Time in range", "format": "%.1f%%"},
     "rebalance_count": {"label": "Rebalances", "format": "%d"},
     "max_drawdown": {"label": "Max drawdown", "format": "$%.2f"},
@@ -261,11 +268,17 @@ def draw_all(pairs, progress) -> list:
 
 
 def metric_cards(row) -> None:
-    """Every stored number for one run, straight from the CSV."""
+    """Every stored number for one run, straight from the CSV.
+
+    The tooltip comes from DISPLAY like the label and the format do, so a
+    column explained there is explained here without this knowing which
+    columns need explaining.
+    """
     columns = st.columns(5)
     for column, name in zip(columns * 2, RESULT_COLUMNS):
         with column:
-            st.metric(label_of(name), format_value(name, row[name]))
+            st.metric(label_of(name), format_value(name, row[name]),
+                      help=DISPLAY.get(name, {}).get("help"))
 
 
 def show_detail(row) -> None:
