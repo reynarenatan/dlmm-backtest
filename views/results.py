@@ -1,4 +1,10 @@
-"""The headline results for the full year, from precomputed values.
+"""Every run that has been done, and where the pool's fees were earned.
+
+An overview, not a case study. A single run's metrics, its wealth table,
+its break-even rate and its cost sensitivity all used to follow here for
+the full year at bin step 4 -- but Run history shows any saved run's
+numbers and puts two of them side by side, so one run singled out on the
+landing page was the same comparison told worse.
 
 Every string that reaches markdown goes through webdata.md/md_caption/
 md_info, which escape the dollar signs -- Streamlit reads a $...$ pair as
@@ -15,7 +21,7 @@ try:
     from results.store import load_runs
     from webdata import (STRATEGY_LABELS, chart_path, load_summary, md,
                          md_caption, md_info, money, money_round, pct,
-                         period_caption, rate, signed_money, signed_pct)
+                         signed_money, signed_pct)
     from windows import label_for
 except ImportError as error:
     from stale import guard
@@ -24,12 +30,8 @@ except ImportError as error:
 
 summary = load_summary()
 params = summary["params"]
-market = summary["market"]
-hodl = summary["hodl"]
 pool = summary["pool"]
 passive = summary["strategies"]["passive"]
-rebalancing = summary["strategies"]["rebalancing"]
-width_pct = summary["position_width_pct"]
 
 # One chart, and the one thing it is there to show, written against the
 # precomputed numbers so a re-run cannot leave the caption stale.
@@ -60,10 +62,10 @@ CHARTS = [
 # the history page reads the same file -- so the rule that a results page
 # only ever shows precomputed values still holds.
 #
-# The rest of the page is one run in detail. This is all of them at once,
-# which is the only place a reader can see that the market mattered more
-# than the grid, and that beating holding and making money are different
-# questions with different answers.
+# It is the bulk of the page, and the only place a reader can see that the
+# market mattered more than the grid, and that beating holding and making
+# money are different questions with different answers. Anything about one
+# run belongs on Run history, which can show two at a time.
 
 def comparable(runs):
     """Runs done at a tracked pool's own parameters, in the standard size.
@@ -285,134 +287,9 @@ def conclusion(runs) -> None:
     md_info("\n\n".join(lines))
 
 
-def metric_cards(s) -> None:
-    """The headline numbers for one strategy.
-
-    Two returns, deliberately, because they answer different questions and
-    on this year they point opposite ways: net APY is a comparison against
-    holding, and return on deposit is what the money actually did.
-    """
-    st.metric("Fees earned", money(s["total_fees"]),
-              help="Trading fees the position collected over the year.")
-    st.metric("Impermanent loss", signed_money(s["total_il"]),
-              help="What the position gave up against simply holding the "
-                   "tokens it started with.")
-    st.metric("Rebalancing costs",
-              money(s["total_costs"]) if s["total_costs"] else "--",
-              help="Charged on the value that changed hands each time the "
-                   "range moved." if s["total_costs"]
-                   else "This strategy never moves its range.")
-    st.metric("Net vs holding", signed_money(s["net_pnl"]),
-              help="Fees minus impermanent loss and costs. A comparison "
-                   "against holding, not a return on the deposit.")
-    st.metric("Net APY", pct(s["net_apy"] * 100),
-              help="The same comparison, annualised.")
-    st.metric("Return on deposit", signed_pct(s["absolute_return_pct"]),
-              help="What the money did, rather than how it did against "
-                   "holding: fees collected plus whatever the position is "
-                   "still worth, measured against what went in. A strategy "
-                   "can beat holding and still be negative here, and on "
-                   "this year both are.")
-    st.metric("Break-even fee rate", rate(s["break_even_fee_rate"]),
-              help="The fee rate that would have made net PnL exactly zero "
-                   "on this price path - the rate at which fees just cover "
-                   "impermanent loss and costs. A pool charging more than "
-                   "this beat holding; a pool charging less did not.")
-
-
-def wealth_table() -> None:
-    st.subheader("What happened to the deposit")
-    md("Net PnL is a comparison against holding, not a return. On a year "
-       "like this one the two point in opposite directions, so this is the "
-       "money itself:")
-    rows = [
-        ("Fees collected", money(passive["total_fees"]),
-         money(rebalancing["total_fees"]), "-"),
-        ("Position at the end", money(passive["final_value"]),
-         money(rebalancing["final_value"]), money(hodl["end_value"])),
-        ("**Total at the end**", f"**{money(passive['total_wealth'])}**",
-         f"**{money(rebalancing['total_wealth'])}**",
-         f"**{money(hodl['end_value'])}**"),
-        ("**Return on the deposit**",
-         f"**{signed_pct(passive['absolute_return_pct'])}**",
-         f"**{signed_pct(rebalancing['absolute_return_pct'])}**",
-         f"**{signed_pct(hodl['absolute_return_pct'])}**"),
-        ("Against holding", signed_money(passive["net_pnl"]),
-         signed_money(rebalancing["net_pnl"]), "-"),
-    ]
-    header = (f"| From {money(hodl['entry_value'])} at entry | Passive | "
-              f"Rebalancing | Just holding |\n|---|---|---|---|\n")
-    md(header + "\n".join("| " + " | ".join(r) + " |" for r in rows))
-    md_caption(
-        "Fees are withdrawn as they are earned rather than compounded back "
-        "in, so the total is fees plus whatever the position is still worth."
-    )
-    md_caption(
-        f"The deposit is {money(params['deposit'])}, but the position is "
-        f"marked at {money(hodl['entry_value'])} the moment it opens. "
-        f"Spreading it across {params['position_bins']} bins puts about half "
-        f"of it in bins above the current price, and those bins hold SOL "
-        f"bought at their own price - each one a little above the market - "
-        f"so valued at the market price they come to slightly less than the "
-        f"cash that went into them. Nothing has been spent: the gap closes "
-        f"if price rises back through those bins, and holding is measured "
-        f"from the same {money(hodl['entry_value'])}, so it cancels out of "
-        f"every comparison on this page."
-    )
-
-
-def break_even_section() -> None:
-    st.subheader("The break-even fee rate")
-    md("The rate at which fees would have exactly covered impermanent loss "
-       "and costs on this price path. It turns the whole result into one "
-       "number you can compare against the pool you are actually in.")
-    assumed = params["fee_rate"]
-    rows = []
-    for key, s in summary["strategies"].items():
-        needed = s["break_even_fee_rate"]
-        # How far the assumed rate sits from the rate this strategy needed.
-        gap = (assumed - needed) / needed * 100
-        verdict = (f"{abs(gap):.0f}% {'above' if gap > 0 else 'below'} it - "
-                   f"{'beats' if gap > 0 else 'loses to'} holding")
-        rows.append((STRATEGY_LABELS[key], rate(needed), rate(assumed),
-                     verdict))
-    md("| | Needed | This run assumed | Verdict |\n|---|---|---|---|\n"
-       + "\n".join("| " + " | ".join(r) + " |" for r in rows))
-    md_caption(
-        "Verified by re-running at the reported rate: net PnL comes out "
-        "0.0000 with impermanent loss and costs unchanged."
-    )
-
-
-def cost_sensitivity_section() -> None:
-    st.subheader("Does rebalancing survive a higher trading cost?")
-    rows = summary["cost_sensitivity"]
-    configured = params["rebalance_cost"]
-
-    header = "| Cost per rebalance | " + " | ".join(
-        f"**{pct(r['cost_rate'] * 100)}**" if r["cost_rate"] == configured
-        else pct(r["cost_rate"] * 100) for r in rows) + " |\n"
-    header += "|---|" + "---|" * len(rows) + "\n"
-    body = [
-        "| Total costs | " + " | ".join(money(r["total_costs"])
-                                        for r in rows) + " |",
-        "| Net vs holding | " + " | ".join(signed_money(r["net_pnl"])
-                                           for r in rows) + " |",
-    ]
-    md(header + "\n".join(body))
-
-    worst = rows[-1]
-    md(f"Not comfortably. At {pct(worst['cost_rate'] * 100)} the "
-       f"{worst['rebalances']:,} rebalances cost "
-       f"{money(worst['total_costs'])} and rebalancing loses to holding as "
-       f"well. Its edge is a bet that recentring stays cheap; the "
-       f"{pct(configured * 100)} used above is the configured assumption, "
-       "not a measured one.")
-
-
 st.title("Results")
 md_caption(
-    "What every backtest found, and then the full year in detail"
+    "What every backtest run so far found, taken together"
 )
 
 md("Money is put into a SOL/USDC liquidity position, which earns trading "
@@ -425,41 +302,6 @@ md("Money is put into a SOL/USDC liquidity position, which earns trading "
 overview()
 
 st.divider()
-st.subheader("The full year in detail")
-md_caption(period_caption(params))
-
-md(f"One row of the table above, at length: {money(params['deposit'])} in "
-   f"a {params['position_bins']}-bin position held for a year, to "
-   f"{params['end'][:10]}. Over that year SOL fell "
-   f"{pct(abs(market['change_pct']))}, from {money(market['start_price'])} "
-   f"to {money(market['end_price'])}. It is the longest window and the "
-   "hardest one, so it is the one worth taking apart.")
-
-md_info(f"**Both strategies lost money.** The deposit finished "
-        f"{signed_pct(passive['absolute_return_pct'])} under the passive "
-        f"strategy and {signed_pct(rebalancing['absolute_return_pct'])} "
-        f"under rebalancing, against "
-        f"{signed_pct(hodl['absolute_return_pct'])} for simply holding. "
-        f"Rebalancing still beat holding by "
-        f"{money(rebalancing['net_pnl'])}, while the passive position "
-        f"finished {money(abs(passive['net_pnl']))} behind it.")
-
-left, right = st.columns(2)
-for column, (key, s) in zip((left, right), summary["strategies"].items()):
-    with column:
-        st.subheader(STRATEGY_LABELS[key])
-        metric_cards(s)
-
-st.divider()
-wealth_table()
-
-st.divider()
-break_even_section()
-
-st.divider()
-cost_sensitivity_section()
-
-st.divider()
 st.subheader("Where the year's fees were")
 for filename, caption, takeaway in CHARTS:
     st.image(chart_path(filename), caption=caption, width="stretch")
@@ -467,7 +309,8 @@ for filename, caption, takeaway in CHARTS:
     st.write("")
 
 md(f"**Two things that chart does not show, and they are the finding.** "
-   f"The passive range was fixed at "
+   f"Take the full-year passive run in this pool, a row of the tables "
+   f"above. Its range was fixed at "
    f"{money(passive['initial_range_low'])}-"
    f"{money(passive['initial_range_high'])} on the first candle and price "
    f"left it within weeks, so it earned on "
@@ -490,7 +333,7 @@ md_caption(
 )
 
 md_caption(
-    "Every number and the chart on this page were produced ahead of time "
-    "by `precompute.py` and `run_backtest.py`, and the table above is read "
-    "from `results/runs.csv`. The page never runs the engine."
+    "The tables above are read from `results/runs.csv`, and the chart and "
+    "the paragraph under it were produced ahead of time by `run_backtest.py` "
+    "and `precompute.py`. The page never runs the engine."
 )

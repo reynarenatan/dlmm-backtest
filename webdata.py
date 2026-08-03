@@ -166,13 +166,6 @@ def rate(x, dp=4) -> str:
     return f"{x * 100:.{dp}f}%"
 
 
-def period_caption(params) -> str:
-    return (f"{params['start'][:10]} to {params['end'][:10]} - "
-            f"{params['candles']:,} one-minute candles - "
-            f"${params['deposit']:,} into a {params['position_bins']}-bin "
-            f"range at bin step {params['bin_step']}")
-
-
 def hosted_note() -> None:
     """Why a run saved on the hosted site may not be there tomorrow.
 
