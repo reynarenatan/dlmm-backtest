@@ -7,6 +7,13 @@ token inventory of a position as price crosses its bins, and accounts the
 result as fee income versus impermanent loss — comparing passive and
 rebalancing strategies on the same data.
 
+The engine is a library first: `backtest.run()` returns a run as a dict and
+prints nothing. On top of it sit a terminal report, a CSV store of every run
+ever executed, and a four-page Streamlit app —
+**[dlmm-backtest.streamlit.app](https://dlmm-backtest.streamlit.app)** — that
+presents the results, explains the method, and lets a reader configure and
+run a backtest themselves. See [The web app](#the-web-app) below.
+
 ## Datasets
 
 Two 1-minute SOL datasets, both from Jupiter's chart API. Which one every
@@ -20,8 +27,8 @@ module loads is set by `DATA_FILE` in `config.py`.
 Both are committed, so a fresh clone (or a deployment) has data without a
 fetch step. Switch between them by editing `DATA_FILE`; the results below
 are from the year, and the 14-day set is small enough to iterate on
-quickly (a few seconds against 54 s on the year, of which the two runs
-and all their metrics are 20 s and the thirteen charts are 6 s).
+quickly (a few seconds against about a minute on the year, of which the
+two runs and all their metrics are 20 s and the twelve charts a few more).
 
 The year ships as Parquet rather than CSV because at this size the format
 carries its weight: 0.2 s to load versus ~15 s for the same rows as CSV, and
@@ -172,11 +179,83 @@ At 0.5% the 2,236 rebalances cost $375.03 and rebalancing loses to
 holding as well. The strategy's edge is a bet that recentring stays
 cheap.
 
+### The same year in the other two pools
+
+The results above are the bin step 4 pool. Run at each tracked pool's own
+measured share and depth (the table under [Model
+assumptions](#model-assumptions)), the same year looks like this — return is
+total wealth against the position's entry value, and holding differs by pool
+because a wider bin buys its opening SOL further above the market:
+
+| pool | passive net vs HODL | rebalancing net vs HODL | passive return | rebalancing return | holding |
+|---|---|---|---|---|---|
+| step 4 | −$33.77 | +$120.90 | −32.1% | −16.5% | −28.7% |
+| step 10 | +$20.27 | +$299.02 | −28.3% | −0.2% | −30.3% |
+| step 20 | −$23.23 | +$123.34 | −32.4% | −17.5% | −30.1% |
+
+Rebalancing beat holding in all three, and no configuration made money over
+the year. Once each pool is run at its own share, the fee totals come out
+close — $284–$332 passive, $723–$980 rebalancing — because a tighter grid's
+28× larger share of volume is spread across bins a fifth as wide, and the two
+effects mostly cancel. What separates the pools is the rebalance count: a
+wider bin is left less often, so step 4 rebalanced 2,236 times for $107.38 of
+cost against step 10's 408 for $46.34 and step 20's 103 for $19.42. Step 10
+wins by earning the most fees while paying less than half of step 4's costs;
+step 20 pays the least and earns too little to use it.
+
+These twelve configurations (four windows × three pools, two strategies
+each) are committed in `results/runs.csv` — see [Run history](#the-web-app).
+Across all 24 runs, 13 beat holding and 10 made money; the average net PnL
+spans $185.84 across the four market windows against $55.31 across the three
+pools, so which market a position was open in matters more than which pool it
+was open in.
+
 The engine thus measures the two legs any range-management or hedging
 approach is judged against: the fee income a position keeps, and the
 price-exposure cost (IL) that must be managed away. On this year, moving
 the range earned more fees than it cost — and neither strategy earned
 enough to make LPing through a 62% drawdown profitable.
+
+## The web app
+
+`streamlit run app.py` serves four pages, deployed at
+[dlmm-backtest.streamlit.app](https://dlmm-backtest.streamlit.app):
+
+| Page | What it is |
+|---|---|
+| **Results** | The landing page, and an overview rather than a case study: every comparable run at once — how many beat holding, how many made money, whether rebalancing beat sitting still, whether the market or the pool moved the answer more — then where the pool's fees were earned over the year. A single run's numbers live on Run history, which can show two at a time |
+| **How it works** | The method in plain language for a reader who has never used a DLMM, with every formula, its symbol key, and the real code beside it. Every quantitative example (a worked candle, a worked rebalance) comes from the precomputed run, so it cannot drift from what the engine did |
+| **Run it yourself** | Pick a window, a pool and a position, and back-test it. Four preset windows chosen from the data — the Sept 2025 peak, the Feb 2026 crash, the recent flat month, the full year — plus every parameter as a widget |
+| **Run history** | Every run in `results/runs.csv`, with filters built from the columns the store writes. Tick one row for its metrics and charts; tick two to diff their configurations and compare them side by side against the same holding baseline |
+
+**No page load runs the engine.** A year of minute candles is ~20 seconds of
+work per strategy, so the headline numbers are computed ahead of time by
+`precompute.py` into `results/year_summary.json` and handed out by
+`webdata.py`. Re-run `python precompute.py` after any change to `config.py`
+or the engine, or the app keeps showing the previous numbers.
+
+Run it yourself is the exception, and its whole design is about not running
+the engine either: `runner.find_saved` answers a configuration already in
+`results/runs.csv` from the file, so the default full-year view loads with
+zero engine calls, and anything genuinely new is quoted a wait before the
+work starts and cached on its configuration afterwards. Only `{params,
+metrics, charts}` is cached, never the per-candle series — a full year's
+series is 64 MB pickled per strategy, and caching it once put the process
+into swap.
+
+Two deployment notes, both learned the hard way:
+
+- **A push does not restart the app.** Streamlit Community Cloud syncs new
+  code into the running process; page scripts are re-read from disk each
+  rerun but imported modules are not. A page from the new commit can import a
+  module from the old one and fail on a name that is plainly in the repo.
+  Every page wraps its project imports and calls `stale.guard`, which prints
+  reboot instructions instead of a traceback. Reboot is the fix — neither
+  Rerun nor Clear cache reloads modules.
+- **A run saved on the hosted site does not survive a rebuild.** It is a real
+  write to the container's own disk, so a page reload keeps it, but a reboot
+  or redeploy rebuilds the container from the repository. The rows that last
+  are the ones produced locally by `scripts/sweep.py` and committed.
 
 ## Repository layout
 
@@ -198,9 +277,34 @@ enough to make LPing through a 62% drawdown profitable.
 | `report.py` | Formats a run for a terminal, ending in a plain-language paragraph (no computing) |
 | `charts.py` | Every chart, each function taking a run and returning a figure (no file writing) |
 | `run_backtest.py` | Runs both strategies, prints the reports, saves the run, writes the charts to `outputs/` |
-| `results/store.py` | Appends every run to `results/runs.csv`, one row per strategy, sharing an execution id |
+| `results/store.py` | Appends every run to `results/runs.csv`, one row per strategy, sharing an execution id. Computes nothing — every value is copied out of `params`/`metrics`, so a stored row cannot disagree with the report printed beside it |
 | `test_bin_math.py` | Tests for the bin math |
 | `data/sol_1m_1y.parquet` | The exact dataset the results above were produced from (committed for reproducibility) |
+| `DLMM Pool Tracking.xlsx` | 16 observations of three live Meteora SOL/USDC pools, July 2026 — the source of every pool parameter |
+
+The web app:
+
+| File | Purpose |
+|---|---|
+| `app.py` | Entry point: page config and navigation, nothing else |
+| `views/results.py` | Results — the cross-run overview and the full-year headline |
+| `views/how_it_works.py` | How it works — the method, the formulas and the real code |
+| `views/run_it_yourself.py` | Run it yourself — controls and layout; the compute lives in `runner.py` |
+| `views/run_history.py` | Run history — the stored runs, their filters, row detail and compare |
+| `webdata.py` | What the pages read and how they format it, including the markdown escaping every page string goes through |
+| `precompute.py` | Runs the engine once, ahead of time, into `results/year_summary.json` |
+| `runner.py` | The one place the app runs the engine: config building, the store lookup, the cached phases and the charts |
+| `windows.py` | The four preset market windows and their names, and nothing else — so a page can name a window without importing matplotlib |
+| `stale.py` | The message a page shows when a stale deploy leaves it importing an older module |
+
+Scripts (developer tools, never imported by the app):
+
+| File | Purpose |
+|---|---|
+| `scripts/sweep.py` | Runs the 12 configurations behind `results/runs.csv` locally, reusing `runner` so the rows are lookup hits for the page |
+| `scripts/pool_params.py` | Derives and checks `config.TRACKED_POOLS` from the tracking spreadsheet |
+| `scripts/backfill_store.py` | Widens `results/runs.csv` to new columns by replaying old rows, asserting every existing value reproduces first |
+| `scripts/check_markdown.py` | Walks the AST for literal strings in a markdown slot with two or more `$` — the money Streamlit would render as LaTeX |
 
 Bin ids use the **raw on-chain price convention** (price in token base
 units: SOL 9 decimals, USDC 6), so SOL at ~$76 sits near bin −6444 at
@@ -220,8 +324,20 @@ a parameter sweep — calls `run()` directly and skips `run_backtest.py`.
 
 ## How to run
 
-Requires Python 3.12+ with `pandas`, `matplotlib`, `requests`, and `pyarrow`
-(the last only for the Parquet path).
+Requires Python 3.12+. `requirements.txt` lists what the deployed app needs
+(`streamlit`, `pandas`, `pyarrow`, `matplotlib`, `numpy`); the engine on its
+own additionally wants `requests` for `fetch_data.py`, and `openpyxl` if you
+re-derive the pool parameters from the spreadsheet.
+
+The web app:
+
+```
+streamlit run app.py       # serves the four pages on http://localhost:8501
+python precompute.py       # refresh what it reads (after any engine or config change)
+```
+
+The engine, from a terminal — each module runs its own checks when executed
+directly:
 
 ```
 python run_backtest.py     # the full backtest (uses config.DATA_FILE)
@@ -236,6 +352,16 @@ python position.py         # position tests incl. the reference worked example
 python inventory.py        # inventory checks on synthetic price paths
 python pnl.py              # IL checks (round trip closes to 0; one-way matches the hand formula)
 python strategies.py       # rebalancing checks (equivalence, value neutrality, trade direction)
+```
+
+Developer scripts, each safe to re-run (the sweep skips configurations
+already saved; the backfill is idempotent and verifies before writing):
+
+```
+python scripts/sweep.py           # the 12 committed configurations -> results/runs.csv
+python scripts/pool_params.py     # re-derive and check config.TRACKED_POOLS
+python scripts/backfill_store.py  # widen runs.csv to columns added since
+python scripts/check_markdown.py  # money that Streamlit would render as maths
 ```
 
 ## Verification
@@ -270,6 +396,18 @@ python strategies.py       # rebalancing checks (equivalence, value neutrality, 
 - Charts never change a number: drawing is decimated to ~12k points
   keeping each series' envelope, while every metric is computed on the
   full series.
+- Stored runs are spot-checked against a direct `backtest.run()` that slices
+  the candles itself rather than going through `runner`, so a bug in the
+  window or the config building shows as a mismatch instead of being
+  reproduced on both sides. Worst difference across the checked rows: 7e-15.
+- The store computes nothing, and `_row()` asserts its keys are exactly
+  `COLUMNS` — the same list the CSV is written and read with, so a column
+  added to one and not the other cannot become a silently blank cell.
+- The pool parameters in `config.TRACKED_POOLS` are reproduced from the
+  spreadsheet by `scripts/pool_params.py`, which checks them rather than only
+  printing them.
+- The app's default full-year view is proven to make zero engine calls by
+  monkeypatching `runner.run_strategy` and asserting it is never called.
 
 ## Model assumptions
 
@@ -287,9 +425,11 @@ python strategies.py       # rebalancing checks (equivalence, value neutrality, 
   the single biggest lever on all of the results above. TVL is also held
   constant: in reality it moves, and other LPs would crowd into a range
   that is earning well.
-- **The results above are one pool of three.** A bin step is not a dial on
-  a single pool; it names a different pool with its own fee rate, depth and
-  share of market volume. Three SOL/USDC pools were tracked side by side
+- **The headline results are one pool of three** (the other two are in [The
+  same year in the other two pools](#the-same-year-in-the-other-two-pools)).
+  A bin step is not a dial on a single pool; it names a different pool with
+  its own fee rate, depth and share of market volume. Three SOL/USDC pools
+  were tracked side by side
   (`DLMM Pool Tracking.xlsx`, 16 observations each in July 2026, derived by
   `scripts/pool_params.py` into `config.TRACKED_POOLS`):
 
